@@ -1,0 +1,63 @@
+** compiled at:     Apr 22 2019 02:08:57
+** execution start: 1969-12-31_16:00:00.000000
+util.cpp:initCmdLine:678(1) ** cmd line arguments: './x.exe -useRos 0 '
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/sontung_code/p1-motion'
+
+util.cpp:cd_file:1117(3) entering path '../../rai-robotModels/baxter' from '/home/sontung/robotics-course/sontung_code/p1-motion'
+
+util.cpp:getIs:1146(3) opening input file 'baxter.g'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:getIs:1146(3) opening input file 'baxter-clean.g'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:cd_file:1117(3) entering path 'torso' from '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:getIs:1146(3) opening input file 'base_link_collision.STL'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:cd_file:1117(3) entering path 'base' from '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:getIs:1146(3) opening input file 'pedestal_link_collision.STL'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/sontung_code/p1-motion'
+
+graph.cpp:RegistryInitializer:1188(3) opening config file 'rai.cfg'
+graph.cpp:RegistryInitializer:1194(3)  - failed
+util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
+util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
+util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/sontung_code/p1-motion'
+
+util.cpp:cd_file:1117(3) entering path '/home/sontung/robotics-course/rai/rai/Core/../../../rai-robotModels/baxter' from '/home/sontung/robotics-course/sontung_code/p1-motion'
+
+util.cpp:getIs:1146(3) opening input file 'baxter.g'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:getIs:1146(3) opening input file 'baxter-clean.g'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:cd_file:1117(3) entering path 'torso' from '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:getIs:1146(3) opening input file 'base_link_collision.STL'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:cd_file:1117(3) entering path 'base' from '/home/sontung/robotics-course/rai-robotModels/baxter'
+
+util.cpp:getIs:1146(3) opening input file 'pedestal_link_collision.STL'
+
+util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/sontung_code/p1-motion'
+
+util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
+util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
+util.tpp:getParameterBase:65(3)                    w = 0.0001 [d] (default!)
