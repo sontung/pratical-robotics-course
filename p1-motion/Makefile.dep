@@ -1,0 +1,10 @@
+main.o: main.cpp ../../rai/rai/Kin/kin.h ../../rai/rai/Core/array.h \
+ ../../rai/rai/Core/array.tpp ../../rai/rai/Core/array.h \
+ ../../rai/rai/Core/util.h ../../rai/rai/Geo/geo.h \
+ ../../rai/rai/Geo/geoms.h ../../rai/rai/Geo/mesh.h \
+ ../../rai/rai/Geo/geo.h ../../rai/rai/Kin/featureSymbols.h \
+ ../../rai/rai/Kin/frame.h ../../rai/rai/Core/util.h \
+ ../../rai/rai/Core/graph.h ../../rai/rai/Geo/mesh.h \
+ ../../rai/rai/RosCom/baxter.h ../../rai/rai/Core/thread.h \
+ ../../rai/rai/Core/graph.h ../../rai/rai/Control/ctrlMsg.h \
+ ../../rai/rai/Operate/robotOperation.h

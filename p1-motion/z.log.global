@@ -61,3 +61,7 @@ util.cpp:cd_start:1109(3) entering path '/home/sontung/robotics-course/sontung_c
 util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
 util.tpp:getParameterBase:42(3)               useRos =     0 [b] (graph!)
 util.tpp:getParameterBase:65(3)                    w = 0.0001 [d] (default!)
+** execution stop: 2019-04-23_10:05:39.392096
+** real time: 15.1796sec
+** CPU time: 2.52sec
+** system (includes I/O) time: 0.44sec
