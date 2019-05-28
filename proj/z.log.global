@@ -1,0 +1,11 @@
+** compiled at:     May 24 2019 18:12:36
+** execution start: 1970-01-01_01:00:00.000000
+util.cpp:initCmdLine:679(1) ** cmd line arguments: './x.exe '
+graph.cpp:RegistryInitializer:1255(3) opening config file 'rai.cfg'
+graph.cpp:RegistryInitializer:1261(3)  - failed
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.tpp:getParameterBase:65(3)          rosNodeName = sontung [N3rai6StringE] (default!)
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'

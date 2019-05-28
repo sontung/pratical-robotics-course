@@ -1,0 +1,4 @@
+Makefile
+main.cpp
+inverse_kine.cpp
+inverse_kine.h
