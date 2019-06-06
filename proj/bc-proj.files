@@ -1,4 +1,3 @@
 Makefile
+buid.sh
 main.cpp
-inverse_kine.cpp
-inverse_kine.h

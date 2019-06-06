@@ -8,30 +8,37 @@
 #include <Kin/frame.h>
 #include <Gui/opengl.h>
 #include <Operate/robotOperation.h>
+#include <opencv2/opencv.hpp>
 
 #include <iostream>
+#include <numeric>
+#include <algorithm>
 
 void pause_program() {
     cout << "Press to continue"<<endl;
     std::cin.get();
 }
 
-void ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
-                arr target_position, arr q_home,
-                bool verbose=true) {
+arr ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
+               arr &target_position, arr q_home, bool sending_motion=true,
+               bool verbose=false) {
     rai::Frame *objectFrame = kine_world.addFrame("obj");
     objectFrame->setShape(rai::ST_ssBox, {.1, .1, .1, .02});
     objectFrame->setColor({.8, .8, .1});
     objectFrame->setPosition(target_position);
 
+    double tolerate=0.0001;
+    double time=4.0;
+
     // tracking IK
     arr y, y_verbose, J, Phi, PhiJ;
     arr q, q_best;
-    float best_error = 100.0f;
+    int best_iter;
+    double best_error = 100.0;
     arr Wmetric = diag(2., kine_world.getJointStateDimension());
 
-    //cout<<"staying close to q home: "<<q_home<<endl;
-    //pause_program();
+    cout<<"IK: target postion at "<<target_position<<endl;
+
 
     int i = 0;
     while(i < 1000) {
@@ -40,9 +47,8 @@ void ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
 
         //1st task: go to target pos
         kine_world.evalFeature(y, J, FS_position, {"pointer"});
-        //kine_world.evalFeature(y, J, FS_positionDiff, {"pointer", "obj"});
         arr pos_diff = y-target_position;
-        pos_diff(2) *= 1e1;
+        //pos_diff(2) *= 1e1; // emphasize on z coord
         Phi.append( (pos_diff) * 1e2);
         PhiJ.append( J * 1e2 );
 
@@ -71,25 +77,138 @@ void ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
             cout << "     current position="<<y_verbose<<", target position="<<target_position<<endl;
             kine_world.evalFeature(y_verbose, J, FS_quaternion, {"baxterR"});
             cout << "     current quaternion="<<y_verbose<<", target quaternion="<<objectFrame->getQuaternion()<<endl;
-            cout << "     abs error=" << sumOfAbs(y-target_position)/3.0f<<endl;
+            cout << "     abs error=" << sumOfAbs(y-target_position)/3.0<<endl;
             cout << "     phi and phi j sizes="<<Phi.N<<" "<<PhiJ.N<<endl;
         } else kine_world.evalFeature(y, J, FS_position, {"pointer"});
 
         // save best motion
-        float error = sumOfAbs(y-target_position)/3.0f;
+        double error = sumOfAbs(y-target_position)/3.0;
         if (error < best_error) {
             best_error = error;
             q_best = q;
+            best_iter = i;
         }
 
         // evaluate to terminate early
-        if (error < 0.00001) break;
+        if (error < tolerate) break;
         i++;
     }
 
-    robot_op.move({q_best}, {2});
-    robot_op.sync(kine_world);
+    printf("IK: done in %d iters with error=%f at iter %d\n", i, best_error, best_iter);
+    if (sending_motion) robot_op.move({q_best}, {time});
+    kine_world.setJointState(q_best);
 
+    kine_world.evalFeature(y, J, FS_position, {"pointer"});
+    cout<<"IK: final postion at "<<y<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_vectorZ, {"pointer"});
+    cout<<"IK: final z vector = "<<y_verbose;
+    kine_world.evalFeature(y_verbose, J, FS_quaternion, {"pointer"});
+    cout<<" final quat = "<<y_verbose<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_vectorZ, {"obj"});
+    cout<<"IK: target z vector = "<<y_verbose;
+    kine_world.evalFeature(y_verbose, J, FS_quaternion, {"obj"});
+    cout<<" target quat = "<<y_verbose<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_vectorZDiff, {"pointer", "obj"});
+    cout<<"IK: Z vector diff = "<<y_verbose<<" abs error = "<<sumOfAbs(y_verbose)<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_quaternionDiff, {"pointer", "obj"});
+    cout<<"IK: quaternion diff = "<<y_verbose<<" abs error = "<<sumOfAbs(y_verbose)<<endl;
+
+    return q_best;
+}
+
+arr ik_compute_with_grabbing(rai::KinematicWorld &kine_world, RobotOperation robot_op,
+                             arr &target_position, arr q_home, bool sending_motion=true) {
+    rai::Frame *objectFrame = kine_world.addFrame("obj");
+    objectFrame->setShape(rai::ST_ssBox, {.1, .1, .1, .02});
+    objectFrame->setColor({.8, .8, .1});
+    objectFrame->setPosition(target_position);
+
+    double tolerate=0.0001;
+    double time=4.0;
+
+    // tracking IK
+    arr y, y_verbose, J, Phi, PhiJ;
+    arr q, q_best;
+    int best_iter;
+    double best_error = 100.0;
+    arr Wmetric = diag(2., kine_world.getJointStateDimension());
+
+    cout<<"IK: target postion at "<<target_position<<endl;
+
+
+    int i = 0;
+    while(i < 1000) {
+        Phi.clear();
+        PhiJ.clear();
+
+        //1st task: go to target pos
+        kine_world.evalFeature(y, J, FS_position, {"pointer"});
+        arr pos_diff = y-target_position;
+        //pos_diff(2) *= 1e1; // emphasize on z coord
+        Phi.append( (pos_diff) * 1e2);
+        PhiJ.append( J * 1e2 );
+
+        //2nd task: joint should stay close to zero
+        kine_world.evalFeature(y, J, FS_qItself, {});
+        Phi .append( (y-q_home) * 1e0 );
+        PhiJ.append( J * 1e0 );
+
+        //3rd task: joint angles
+        kine_world.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
+        Phi.append( y * 1e1);
+        PhiJ.append( J * 1e1 );
+
+        // IK compute joint updates
+        q = kine_world.getJointState();
+        q -= 0.05*inverse(~PhiJ*PhiJ + Wmetric) * ~PhiJ * Phi;
+
+        kine_world.setJointState(q);
+        kine_world.watch();
+
+        kine_world.evalFeature(y, J, FS_position, {"pointer"});
+
+        // save best motion
+        double error = sumOfAbs(y-target_position)/3.0;
+        if (error < best_error) {
+            best_error = error;
+            q_best = q;
+            best_iter = i;
+        }
+
+        // evaluate to terminate early
+        if (error < tolerate) break;
+        i++;
+    }
+
+    printf("IK: done in %d iters with error=%f at iter %d\n", i, best_error, best_iter);
+    q_best(-2) = 1;
+    if (sending_motion) robot_op.move({q_best}, {time});
+    kine_world.setJointState(q_best);
+
+    kine_world.evalFeature(y, J, FS_position, {"pointer"});
+    cout<<"IK: final postion at "<<y<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_vectorZ, {"pointer"});
+    cout<<"IK: final z vector = "<<y_verbose;
+    kine_world.evalFeature(y_verbose, J, FS_quaternion, {"pointer"});
+    cout<<" final quat = "<<y_verbose<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_vectorZ, {"obj"});
+    cout<<"IK: target z vector = "<<y_verbose;
+    kine_world.evalFeature(y_verbose, J, FS_quaternion, {"obj"});
+    cout<<" target quat = "<<y_verbose<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_vectorZDiff, {"pointer", "obj"});
+    cout<<"IK: Z vector diff = "<<y_verbose<<" abs error = "<<sumOfAbs(y_verbose)<<endl;
+
+    kine_world.evalFeature(y_verbose, J, FS_quaternionDiff, {"pointer", "obj"});
+    cout<<"IK: quaternion diff = "<<y_verbose<<" abs error = "<<sumOfAbs(y_verbose)<<endl;
+
+    return q_best;
 }
 
 rai::KinematicWorld setup_kinematic_world() {
@@ -100,6 +219,8 @@ rai::KinematicWorld setup_kinematic_world() {
     rai::Frame *cameraFrame = C.addFrame("camera", "head");
     cameraFrame->Q.setText("d(-90 0 0 1) t(-.08 .205 .115) d(26 1 0 0) d(-1 0 1 0) d(6 0 0 1)");
     cameraFrame->calc_X_from_parent();
+    cameraFrame->setPosition({-0.0472772, 0.226517, 1.79207});
+    cameraFrame->setQuaternion({0.969594, 0.24362, -0.00590741, 0.0223832});
 
     // add a frame for the object
     rai::Frame *objectFrame = C.addFrame("obj");
@@ -123,13 +244,12 @@ bool check_neighbor(cv::Mat &img, int kernel_size, int x, int y) {
         cv::Scalar n2 = img.at<uchar>(x-step, y);
         cv::Scalar n3 = img.at<uchar>(x, y+step);
         cv::Scalar n4 = img.at<uchar>(x, y-step);
-        int v1 = n1.val[0];
-        int v2 = n2.val[0];
-        int v3 = n3.val[0];
-        int v4 = n4.val[0];
+        double v1 = n1.val[0];
+        double v2 = n2.val[0];
+        double v3 = n3.val[0];
+        double v4 = n4.val[0];
 
-        if (v1 == 255 || v2 == 255 ||
-                v3 == 255 || v4 == 255) {
+        if (v1 == 255.0 || v2 == 255.0 || v3 == 255.0 || v4 == 255.0) {
             step++;
         } else {
             res = false;
@@ -137,6 +257,66 @@ bool check_neighbor(cv::Mat &img, int kernel_size, int x, int y) {
         }
     }
     return res;
+}
+
+double find_circle(cv::Mat img) {
+    cv::Mat img2;
+    cv::Mat hsv_image2;
+    cv::Mat thresholded_img;
+
+    // blur
+    for ( int u = 1; u < 31; u = u + 2 ){ cv::GaussianBlur( img, img2, cv::Size( u, u ), 0, 0 ); }
+    cv::cvtColor(img2, hsv_image2, cv::COLOR_BGR2HSV);
+
+    // threshold
+    cv::inRange(hsv_image2, cv::Scalar(40, 40, 40), cv::Scalar(70, 255, 255), thresholded_img);
+
+    // remove outliers
+    int rows = thresholded_img.rows;
+    int cols = thresholded_img.cols;
+    int i_avg;
+    int j_avg;
+    int count;
+    for (int i=0;i<rows;i++) {
+        for (int j=0;j<cols;j++) {
+            if (check_neighbor(thresholded_img, 10, i, j)) {
+                thresholded_img.at<uchar>(i, j) = 255;
+                i_avg += i;
+                j_avg += j;
+                count += 1;
+            }
+            else thresholded_img.at<uchar>(i, j) = 0;
+        }
+    }
+
+    std::vector<cv::Mat> contours;
+    findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(img, contours, -1, color);
+
+    printf(" detected %d objects\n", contours.size());
+    for (uint u=0;u<contours.size();u++) {
+        double area = cv::contourArea(contours[u]);
+        printf("  object %d: detected %d points in the contour\n", u+1, contours[u].size().height);
+        std::cout<< "  area: " <<area<<std::endl;
+
+        i_avg = 0;
+        j_avg = 0;
+        count = 0;
+        for (int v=0;v<contours[u].size().height;v++) {
+            cv::Point point = contours[u].at<cv::Point>(v);
+            i_avg += point.x;
+            j_avg += point.y;
+            count ++;
+        }
+        cv::Point mark = cv::Point(i_avg/count, j_avg/count);
+        cv::drawMarker(img, mark, cv::Scalar(0, 0, 0), 16, 3, 8);
+
+    }
+    cv::imwrite("right_hand_cam.png", img);
+    if (contours.size() > 1) cv::imwrite("right_hand_cam_mult.png", img);
+    double area = cv::contourArea(contours[0]);
+    return area;
 }
 
 std::vector<arr> perception(rai::KinematicWorld &kine_world) {
@@ -153,9 +333,8 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
     if(img.rows != depth_map.rows) return world_coordinates;
 
     // set the intrinsic camera parameters
-    double f = 1./tan(0.5*60.8*RAI_PI/180.);
-    f *= 320.;
-    arr Fxypxy = {f, f, 320., 240.};
+    arr Fxypxy = {538.273, 544.277, 307.502, 249.954};
+    Fxypxy /= 0.982094;
 
     cv::Mat img2;
     cv::Mat hsv_image2;
@@ -195,8 +374,9 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
     printf("detected %d objects\n", contours.size());
 
     // image coordinates -> world coordinates
+    std::vector<float> all_depths;
     for (uint u=0;u<contours.size();u++) {
-        float area = cv::contourArea(contours[u]);
+        double area = cv::contourArea(contours[u]);
         if (area <= 0) continue;
         i_avg = 0;
         j_avg = 0;
@@ -208,9 +388,18 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
             i_avg += point.x;
             j_avg += point.y;
             count ++;
+            float current_depth = depth_map.at<float>(j_avg, i_avg);
+            all_depths.push_back(current_depth);
         }
         cv::Point mark = cv::Point(i_avg/count, j_avg/count);
         cv::drawMarker(img, mark, cv::Scalar(0, 0, 0), 16, 3, 8);
+
+        float avg_depth = std::accumulate(all_depths.begin(), all_depths.end(), 0.0f);
+        std::nth_element(all_depths.begin(),
+                         all_depths.begin() + all_depths.size()/2,
+                         all_depths.end());
+        float median_depth = all_depths[all_depths.size()/2];
+
         arr image_coord = {(float)i_avg/count, (float)j_avg/count, depth_map.at<float>(j_avg/count, i_avg/count)};
 
         // camera coordinates
@@ -226,7 +415,6 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
     cv::imwrite("rgb_detected.png", img);
     //cv::imshow("rgb", img); //white=2meters
     //cv::imshow("depth", 0.5*depth_map); //white=2meters
-    cv::waitKey(10);
     printf("\n");
     return world_coordinates;
 }
@@ -237,33 +425,7 @@ void print_with_color(std::string text, int color=32) {
     cout<<stringStream.str();
 }
 
-void calibrate_to_target(rai::KinematicWorld &kine_world,
-                         RobotOperation robot_op,
-                         arr target_position, arr q_home) {
-    // raise the arm a bit above
-    arr current_pos, current_J;
-    float depth = target_position(2);
-    target_position(2) += 0.2;
-    cout<<"Initial at: "<<target_position<<endl;
-    ik_compute(kine_world, robot_op, target_position, q_home, false);
-
-
-    // start to calibrate
-    while (1) {
-        cout<<"Go to: "<<target_position<<endl;
-        target_position(2) -= 0.01;
-        ik_compute(kine_world, robot_op, target_position, q_home, false);
-        kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
-        cout<<"Now at: "<<current_pos<<endl;
-
-        // grabbing image from cam left hand
-
-        pause_program();
-        //if (target_position(2) > depth) break;
-    }
-}
-
-void test_cam() {
+double grab_right_hand_cam() {
     Var<byteA> _rgb;
     Var<floatA> _depth;
     RosCamera cam(_rgb, _depth, "sontung", "/cameras/right_hand_camera/image", "");
@@ -271,36 +433,98 @@ void test_cam() {
     while (1) {
         byteA img = _rgb.get();
         cv::Mat rgb = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
-        // bgra2rgba
 
         if (rgb.total() > 0) {
-            cout<<"showing right hand camera"<<endl;
-            cv::imshow( "right hand camera", rgb);
-            cv::waitKey(0);
+            return find_circle(rgb);
         }
+    }
+}
+
+void calibrate_to_target(rai::KinematicWorld &kine_world,
+                         RobotOperation robot_op,
+                         arr target_position, arr q_home) {
+    arr current_pos, current_J;
+    cout<<"Initial at: "<<target_position<<endl;
+    ik_compute(kine_world, robot_op, target_position, q_home, false);
+    int i = 0;
+
+
+    // start to calibrate
+    while (1) {
+        cout<<"Iter "<<i<<" ";
+        cout<<"Go to: "<<target_position<<endl;
+        target_position(2) -= 0.05;
+        ik_compute(kine_world, robot_op, target_position, q_home, false);
+        kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
+        cout<<"Now at: "<<current_pos<<endl;
+        cout<<"analyzing right hand camera"<<endl;
+        pause_program();
+
+        // grabbing image from cam right hand
+        grab_right_hand_cam();
+        pause_program();
+
+        i += 1;
+    }
+}
+
+void go_down(rai::KinematicWorld &kine_world,
+             RobotOperation robot_op,
+             arr target_position, arr q_home) {
+    arr current_pos, current_J;
+    arr dummy = ik_compute(kine_world, robot_op, target_position, q_home, false);
+    kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
+    cout<<"Initial at: "<<current_pos<<endl;
+    int i = 0;
+
+
+    // start to calibrate
+    while (1) {
+        target_position(2) -= 0.01;
+        cout<<"Go to "<<target_position<<endl;
+        dummy = ik_compute(kine_world, robot_op, target_position, q_home, false);
+        kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
+        cout<<"Now at "<<current_pos<<endl;
+
+        cout<<"analyzing right hand camera"<<endl;
+        pause_program();
+
+        // grabbing image from cam right hand
+        double area = grab_right_hand_cam();
+        if (area < 0 || area > 13000.0) break;
+        pause_program();
+
+        i += 1;
     }
 }
 
 int main(int argc,char **argv){
     rai::initCmdLine(argc,argv);
-    bool sending_motion = false;
+    bool motion = true;
+    bool testing_trivial = false;
 
-    if (sending_motion) {
+    // basic setup
+    rai::KinematicWorld C = setup_kinematic_world();
+    RobotOperation B(C);
+    cout <<"joint names: " <<B.getJointNames() <<endl;
+
+    arr y, J;
+    C.evalFeature(y, J, FS_vectorZDiff, {"pointer", "obj"});
+    cout <<"vector Z diff: " << y <<endl;
+    C.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
+    cout <<"quaternion diff: " << y <<endl;
+
+
+    if (!testing_trivial) {
         cout<<"will send motion. confirm?"<<endl;
         pause_program();
-
-        // basic setup
-        rai::KinematicWorld C = setup_kinematic_world();
-        RobotOperation B(C);
 
         // homing
         print_with_color("moving to home position");
         arr q_home = C.getJointState();
-        B.moveHard(q_home);
-        //B.sync(C);
+        if (motion) B.moveHard(q_home);
         cout<<"q home: "<<q_home<<endl;
         pause_program();
-
 
         // perceiving target point
         print_with_color("doing perception");
@@ -312,18 +536,55 @@ int main(int argc,char **argv){
         for (uint i=0;i<targets.size();i++) cout<<"detected: "<<targets[i]<<endl;
         pause_program();
 
-        // calibrate to target point
-        //print_with_color("doing calibration");
-        //calibrate_to_target(C, B, targets[0], q_home);
-
         // ik to target
+        arr q_current;
         print_with_color("doing motion");
-        targets[0](2) = 0.821475;
-        ik_compute(C, B, targets[0], q_home);
-        pause_program();
-    } else {
-        test_cam();
-    }
+        //targets[0] = {-0.0564372, 0.662442, 0.905867};
 
+        targets[0](2) += 0.3;
+        q_current = ik_compute(C, B, targets[0], q_home, motion);
+        pause_program();
+
+        targets[0](2) = 0.81;
+        q_current = ik_compute(C, B, targets[0], q_home, motion);
+        cout<<"Ready to grab at "<< q_current<<endl;
+        pause_program();
+
+        // closing finger
+        while (1) {
+            q_current = B.getJointPositions();
+            cout <<" q:" <<q_current
+                <<" gripper right: " <<B.getGripperOpened("right") <<' '<<B.getGripperGrabbed("right")
+               <<endl;
+            if (!B.getGripperGrabbed("right")) {
+                q_current(-2) = 1;
+                if (motion) B.moveHard(q_current);
+                break;
+            }
+            pause_program();
+        }
+
+        // go up
+        targets[0](2) += 0.3;
+        q_current = ik_compute_with_grabbing(C, B, targets[0], q_home, motion);
+        pause_program();
+
+        // release ball
+        q_current(-2) = 0;
+        if (motion) B.moveHard(q_current);
+
+        pause_program();
+    }
+    else {
+        arr q_current;
+        q_current = B.getJointPositions();
+        cout <<" q:" <<q_current
+            <<" gripper right: " <<B.getGripperOpened("right") <<' '<<B.getGripperGrabbed("right")
+           <<endl;
+        q_current(-2) = 1;
+        B.moveHard(q_current);
+        pause_program();
+    }
     return 0;
 }
+

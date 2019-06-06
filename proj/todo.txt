@@ -1,0 +1,2 @@
+better depth information (take average instead of center point)
+try avg depth, median depth and compare with center depth.
