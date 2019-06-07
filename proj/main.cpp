@@ -58,7 +58,7 @@ arr ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
         PhiJ.append( J * 1e0 );
 
         //3rd task: joint angles
-        kine_world.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
+        kine_world.evalFeature(y, J, FS_vectorZDiff, {"pointer", "obj"});
         Phi.append( y * 1e1);
         PhiJ.append( J * 1e1 );
 
@@ -158,7 +158,7 @@ arr ik_compute_with_grabbing(rai::KinematicWorld &kine_world, RobotOperation rob
         PhiJ.append( J * 1e0 );
 
         //3rd task: joint angles
-        kine_world.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
+        kine_world.evalFeature(y, J, FS_vectorZDiff, {"pointer", "obj"});
         Phi.append( y * 1e1);
         PhiJ.append( J * 1e1 );
 
@@ -388,25 +388,35 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
             i_avg += point.x;
             j_avg += point.y;
             count ++;
-            float current_depth = depth_map.at<float>(j_avg, i_avg);
+            float current_depth = depth_map.at<float>(point.y, point.x);
             all_depths.push_back(current_depth);
         }
         cv::Point mark = cv::Point(i_avg/count, j_avg/count);
         cv::drawMarker(img, mark, cv::Scalar(0, 0, 0), 16, 3, 8);
 
-        float avg_depth = std::accumulate(all_depths.begin(), all_depths.end(), 0.0f);
+        float avg_depth = std::accumulate(all_depths.begin(), all_depths.end(), 0.0f) / count;
         std::nth_element(all_depths.begin(),
                          all_depths.begin() + all_depths.size()/2,
                          all_depths.end());
         float median_depth = all_depths[all_depths.size()/2];
 
         arr image_coord = {(float)i_avg/count, (float)j_avg/count, depth_map.at<float>(j_avg/count, i_avg/count)};
+        cout<<"center depth "<<image_coord<<endl;
+        image_coord = {(float)i_avg/count, (float)j_avg/count, avg_depth};
+        cout<<"average depth "<<image_coord<<endl;
+        image_coord = {(float)i_avg/count, (float)j_avg/count, median_depth};
+        cout<<"median depth "<<image_coord<<endl;
+
 
         // camera coordinates
         depthData2point(image_coord, Fxypxy); //transforms the point to camera xyz coordinates
 
         // world coordinates
         cameraFrame->X.applyOnPoint(image_coord); //transforms into world coordinates
+
+        // hardcoded
+        //image_coord(0) += 0.1;
+        image_coord(1) -= 0.01;
 
         world_coordinates.push_back(image_coord);
     }
@@ -567,6 +577,16 @@ int main(int argc,char **argv){
         // go up
         targets[0](2) += 0.3;
         q_current = ik_compute_with_grabbing(C, B, targets[0], q_home, motion);
+        pause_program();
+
+        // go to target bin
+        cout<<"now go to target bin"<<endl;
+        arr bin_target = {-0.316387, 0.880409, 0.914508};
+        bin_target(2) += 0.3;
+        q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
+        pause_program();
+        bin_target(2) = 0.81;
+        q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
         pause_program();
 
         // release ball
