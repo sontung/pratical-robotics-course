@@ -445,36 +445,10 @@ double grab_right_hand_cam() {
         cv::Mat rgb = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
 
         if (rgb.total() > 0) {
-            return find_circle(rgb);
+            //return find_circle(rgb);
+            cv::imwrite("right_hand_cam.png", rgb);
+            return 0.0;
         }
-    }
-}
-
-void calibrate_to_target(rai::KinematicWorld &kine_world,
-                         RobotOperation robot_op,
-                         arr target_position, arr q_home) {
-    arr current_pos, current_J;
-    cout<<"Initial at: "<<target_position<<endl;
-    ik_compute(kine_world, robot_op, target_position, q_home, false);
-    int i = 0;
-
-
-    // start to calibrate
-    while (1) {
-        cout<<"Iter "<<i<<" ";
-        cout<<"Go to: "<<target_position<<endl;
-        target_position(2) -= 0.05;
-        ik_compute(kine_world, robot_op, target_position, q_home, false);
-        kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
-        cout<<"Now at: "<<current_pos<<endl;
-        cout<<"analyzing right hand camera"<<endl;
-        pause_program();
-
-        // grabbing image from cam right hand
-        grab_right_hand_cam();
-        pause_program();
-
-        i += 1;
     }
 }
 
@@ -508,24 +482,87 @@ void go_down(rai::KinematicWorld &kine_world,
     }
 }
 
+void analyze_right_hand_cam() {
+    cv::Mat im = cv::imread("right_hand_cam2.png");
+
+    // find circle
+    cv::Mat im_gray;
+    cv::Mat detected_edges;
+    cv::Mat dst;
+    int lowThreshold = 20;
+    cv::cvtColor(im, im_gray, CV_BGR2GRAY);
+    cv::blur( im_gray, detected_edges, cv::Size(3,3) );
+    cv::Canny( detected_edges, detected_edges, lowThreshold, lowThreshold*3, 3 );
+    dst = cv::Scalar::all(0);
+    im.copyTo( dst, detected_edges);
+
+    // contours
+    cv::cvtColor(dst, dst, cv::COLOR_BGR2GRAY);
+
+    struct less_than_key
+    {
+        inline bool operator() (const cv::Mat& struct1, const cv::Mat& struct2)
+        {
+            return (cv::contourArea(struct1) < cv::contourArea(struct2) );
+        }
+    };
+
+    std::vector<cv::Mat> contours;
+    std::vector<cv::Mat> interested_contours;
+    findContours(dst, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    std::sort(contours.begin(), contours.end(), less_than_key());
+
+    for (uint u=0;u<contours.size();u++) {
+        double area = cv::contourArea(contours[u]);
+        printf("%f\n", area);
+    }
+    interested_contours.push_back(contours[contours.size()-1]);
+    interested_contours.push_back(contours[contours.size()-2]);
+    interested_contours.push_back(contours[contours.size()-3]);
+
+
+    // draw contours
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(im, interested_contours, -1, color);
+    cv::Moments m = cv::moments(interested_contours[0]);
+    int cX = int(m.m10 / m.m00);
+    int cY = int(m.m01 / m.m00);
+    cv::Point p = cv::Point(cX, cY);
+    cv::drawMarker(im, p, cv::Scalar(0, 200, 100), 16, 3, 8);
+
+    // draw grippers
+    cv::Point mark1 = cv::Point(240, 105);
+    cv::drawMarker(im, mark1, cv::Scalar(0, 100, 100), 16, 3, 8);
+    cv::Point mark2 = cv::Point(482, 105);
+    cv::drawMarker(im, mark2, cv::Scalar(0, 100, 100), 16, 3, 8);
+
+    cv::line(im, mark1, mark2, cv::Scalar(100, 100, 100));
+
+
+    cv::imshow("noname", im);
+    cv::imshow("edge", dst);
+    cv::waitKey(0);
+}
+
 int main(int argc,char **argv){
-    rai::initCmdLine(argc,argv);
     bool motion = true;
-    bool testing_trivial = false;
-
-    // basic setup
-    rai::KinematicWorld C = setup_kinematic_world();
-    RobotOperation B(C);
-    cout <<"joint names: " <<B.getJointNames() <<endl;
-
-    arr y, J;
-    C.evalFeature(y, J, FS_vectorZDiff, {"pointer", "obj"});
-    cout <<"vector Z diff: " << y <<endl;
-    C.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
-    cout <<"quaternion diff: " << y <<endl;
-
+    bool testing_trivial = true;
 
     if (!testing_trivial) {
+
+        rai::initCmdLine(argc,argv);
+
+        // basic setup
+        rai::KinematicWorld C = setup_kinematic_world();
+        RobotOperation B(C);
+        cout <<"joint names: " <<B.getJointNames() <<endl;
+
+        arr y, J;
+        C.evalFeature(y, J, FS_vectorZDiff, {"pointer", "obj"});
+        cout <<"vector Z diff: " << y <<endl;
+        C.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
+        cout <<"quaternion diff: " << y <<endl;
+
         cout<<"will send motion. confirm?"<<endl;
         pause_program();
 
@@ -560,6 +597,13 @@ int main(int argc,char **argv){
         cout<<"Ready to grab at "<< q_current<<endl;
         pause_program();
 
+        // looping to take right hand cam
+        while (1) {
+            printf("taking right hand cam\n");
+            grab_right_hand_cam();
+            pause_program();
+        }
+
         // closing finger
         while (1) {
             q_current = B.getJointPositions();
@@ -585,7 +629,7 @@ int main(int argc,char **argv){
         bin_target(2) += 0.3;
         q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
         pause_program();
-        bin_target(2) = 0.81;
+        bin_target(2) -= 0.1;
         q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
         pause_program();
 
@@ -596,14 +640,7 @@ int main(int argc,char **argv){
         pause_program();
     }
     else {
-        arr q_current;
-        q_current = B.getJointPositions();
-        cout <<" q:" <<q_current
-            <<" gripper right: " <<B.getGripperOpened("right") <<' '<<B.getGripperGrabbed("right")
-           <<endl;
-        q_current(-2) = 1;
-        B.moveHard(q_current);
-        pause_program();
+        analyze_right_hand_cam();
     }
     return 0;
 }
