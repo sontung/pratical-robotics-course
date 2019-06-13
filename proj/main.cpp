@@ -416,7 +416,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
 
         // hardcoded
         //image_coord(0) += 0.1;
-        image_coord(1) -= 0.01;
+        //image_coord(1) -= 0.01;
 
         world_coordinates.push_back(image_coord);
     }
@@ -435,55 +435,9 @@ void print_with_color(std::string text, int color=32) {
     cout<<stringStream.str();
 }
 
-double grab_right_hand_cam() {
-    Var<byteA> _rgb;
-    Var<floatA> _depth;
-    RosCamera cam(_rgb, _depth, "sontung", "/cameras/right_hand_camera/image", "");
-
-    while (1) {
-        byteA img = _rgb.get();
-        cv::Mat rgb = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
-
-        if (rgb.total() > 0) {
-            //return find_circle(rgb);
-            cv::imwrite("right_hand_cam.png", rgb);
-            return 0.0;
-        }
-    }
-}
-
-void go_down(rai::KinematicWorld &kine_world,
-             RobotOperation robot_op,
-             arr target_position, arr q_home) {
-    arr current_pos, current_J;
-    arr dummy = ik_compute(kine_world, robot_op, target_position, q_home, false);
-    kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
-    cout<<"Initial at: "<<current_pos<<endl;
-    int i = 0;
-
-
-    // start to calibrate
-    while (1) {
-        target_position(2) -= 0.01;
-        cout<<"Go to "<<target_position<<endl;
-        dummy = ik_compute(kine_world, robot_op, target_position, q_home, false);
-        kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
-        cout<<"Now at "<<current_pos<<endl;
-
-        cout<<"analyzing right hand camera"<<endl;
-        pause_program();
-
-        // grabbing image from cam right hand
-        double area = grab_right_hand_cam();
-        if (area < 0 || area > 13000.0) break;
-        pause_program();
-
-        i += 1;
-    }
-}
 
 void analyze_right_hand_cam() {
-    cv::Mat im = cv::imread("right_hand_cam2.png");
+    cv::Mat im = cv::imread("right_hand_cam.png");
 
     // find circle
     cv::Mat im_gray;
@@ -533,20 +487,167 @@ void analyze_right_hand_cam() {
     // draw grippers
     cv::Point mark1 = cv::Point(240, 105);
     cv::drawMarker(im, mark1, cv::Scalar(0, 100, 100), 16, 3, 8);
-    cv::Point mark2 = cv::Point(482, 105);
+    cv::Point mark2 = cv::Point(482, 106);
     cv::drawMarker(im, mark2, cv::Scalar(0, 100, 100), 16, 3, 8);
 
     cv::line(im, mark1, mark2, cv::Scalar(100, 100, 100));
 
+    // compute how much devitation from gripper
+    printf("ball center is at %d %d\n", cX, cY);
+    float slope = (float)(mark1.y-mark2.y)/(mark1.x-mark2.x);
+    float distance_to_grippers = abs(slope*cX-cY+mark2.y-slope*mark2.x)/sqrt(slope*slope+1);
+    printf("distance to gippers is %f\n", distance_to_grippers);
 
     cv::imshow("noname", im);
-    cv::imshow("edge", dst);
+    //cv::imshow("edge", dst);
     cv::waitKey(0);
+}
+
+float analyze_right_hand_cam(cv::Mat im) {
+
+    // find circle
+    cv::Mat im_gray;
+    cv::Mat detected_edges;
+    cv::Mat dst;
+    int lowThreshold = 20;
+    cv::cvtColor(im, im_gray, CV_BGR2GRAY);
+    cv::blur( im_gray, detected_edges, cv::Size(3,3) );
+    cv::Canny( detected_edges, detected_edges, lowThreshold, lowThreshold*3, 3 );
+    dst = cv::Scalar::all(0);
+    im.copyTo( dst, detected_edges);
+
+    // contours
+    cv::cvtColor(dst, dst, cv::COLOR_BGR2GRAY);
+
+    struct less_than_key
+    {
+        inline bool operator() (const cv::Mat& struct1, const cv::Mat& struct2)
+        {
+            cv::Point gripper_center = cv::Point(361, 106);
+            cv::Moments m1 = cv::moments(struct1);
+            cv::Moments m2 = cv::moments(struct2);
+
+            cv::Point p1 = cv::Point(int(m1.m10 / m1.m00), int(m1.m01 / m1.m00));
+            cv::Point p2 = cv::Point(int(m2.m10 / m2.m00), int(m2.m01 / m2.m00));
+
+            double dis1 = pow(p1.x-gripper_center.x, 2) + pow(p1.y-gripper_center.y, 2);
+            double dis2 = pow(p2.x-gripper_center.x, 2) + pow(p2.y-gripper_center.y, 2);
+
+            //return (cv::contourArea(struct1) < cv::contourArea(struct2) );
+            return dis1 > dis2;
+        }
+    };
+
+    std::vector<cv::Mat> contours;
+    std::vector<cv::Mat> interested_contours;
+    std::vector<cv::Mat> only_big_contours;
+    findContours(dst, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+
+    for (uint u=0;u<contours.size();u++) {
+        double area = cv::contourArea(contours[u]);
+        if (area>30) only_big_contours.push_back(contours[u]);
+        //printf("%f \n", area);
+    }
+
+    std::sort(only_big_contours.begin(), only_big_contours.end(), less_than_key());
+
+
+    interested_contours.push_back(only_big_contours[only_big_contours.size()-1]);
+    interested_contours.push_back(only_big_contours[only_big_contours.size()-2]);
+    interested_contours.push_back(only_big_contours[only_big_contours.size()-3]);
+    uint ball_ind = 0;
+    double indicator = 0.0;
+    for (uint u=0;u<interested_contours.size();u++) {
+        double area = cv::contourArea(interested_contours[u]);
+        if (abs(area-180) > indicator) {
+            ball_ind = u;
+            indicator = abs(area-180);
+        }
+        printf("%f dis=%f\n", area, abs(area-180));
+    }
+
+    // draw contours
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(im, interested_contours, -1, color);
+    cv::Moments m = cv::moments(interested_contours[ball_ind]);
+    int cX = int(m.m10 / m.m00);
+    int cY = int(m.m01 / m.m00);
+    cv::Point p = cv::Point(cX, cY);
+    cv::drawMarker(im, p, cv::Scalar(0, 200, 100), 16, 3, 8);
+
+    // draw grippers
+    cv::Point mark1 = cv::Point(240, 105);
+    cv::drawMarker(im, mark1, cv::Scalar(0, 100, 100), 16, 3, 8);
+    cv::Point mark2 = cv::Point(482, 106);
+    cv::drawMarker(im, mark2, cv::Scalar(0, 100, 100), 16, 3, 8);
+
+    cv::line(im, mark1, mark2, cv::Scalar(100, 100, 100));
+
+    // compute how much devitation from gripper
+    printf("ball center is at %d %d\n", cX, cY);
+    float slope = (float)(mark1.y-mark2.y)/(mark1.x-mark2.x);
+    float distance_to_grippers = (slope*cX-cY+mark2.y-slope*mark2.x)/sqrt(slope*slope+1);
+    printf("distance to gippers is %f\n", distance_to_grippers);
+
+    cv::imwrite("rhc_analyzed.png", im);
+    cv::imwrite("rhc_edge.png", dst);
+    return distance_to_grippers;
+
+    //    cv::imshow("noname", im);
+    //    cv::imshow("edge", dst);
+    //    cv::waitKey(10);
+}
+
+float grab_right_hand_cam() {
+    Var<byteA> _rgb;
+    Var<floatA> _depth;
+    RosCamera cam(_rgb, _depth, "sontung", "/cameras/right_hand_camera/image", "");
+
+    while (1) {
+        byteA img = _rgb.get();
+        cv::Mat rgb = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
+
+        if (rgb.total() > 0) {
+            //return find_circle(rgb);
+            //cv::imwrite("right_hand_cam.png", rgb);
+            return analyze_right_hand_cam(rgb);
+        }
+    }
+}
+
+void go_down(rai::KinematicWorld &kine_world,
+             RobotOperation robot_op,
+             arr target_position, arr q_home) {
+    arr current_pos, current_J;
+    arr dummy = ik_compute(kine_world, robot_op, target_position, q_home, false);
+    kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
+    cout<<"Initial at: "<<current_pos<<endl;
+    int i = 0;
+
+
+    // start to calibrate
+    while (1) {
+        target_position(2) -= 0.01;
+        cout<<"Go to "<<target_position<<endl;
+        dummy = ik_compute(kine_world, robot_op, target_position, q_home, false);
+        kine_world.evalFeature(current_pos, current_J, FS_position, {"pointer"});
+        cout<<"Now at "<<current_pos<<endl;
+
+        cout<<"analyzing right hand camera"<<endl;
+        pause_program();
+
+        // grabbing image from cam right hand
+        double area = grab_right_hand_cam();
+        if (area < 0 || area > 13000.0) break;
+        pause_program();
+
+        i += 1;
+    }
 }
 
 int main(int argc,char **argv){
     bool motion = true;
-    bool testing_trivial = true;
+    bool testing_trivial = false;
 
     if (!testing_trivial) {
 
@@ -588,21 +689,24 @@ int main(int argc,char **argv){
         print_with_color("doing motion");
         //targets[0] = {-0.0564372, 0.662442, 0.905867};
 
-        targets[0](2) += 0.3;
+        targets[0](2) += 0.15;
         q_current = ik_compute(C, B, targets[0], q_home, motion);
         pause_program();
+
+        // analyzing right hand cam
+        float distance_to_grippers = grab_right_hand_cam();
+        while (abs(distance_to_grippers) > 80) {
+            if (distance_to_grippers > 0) targets[0](1) += 0.01;
+            else if (distance_to_grippers < 0) targets[0](1) -= 0.01;
+            q_current = ik_compute(C, B, targets[0], q_home, motion);
+            pause_program();
+            distance_to_grippers = grab_right_hand_cam();
+        }
 
         targets[0](2) = 0.81;
         q_current = ik_compute(C, B, targets[0], q_home, motion);
         cout<<"Ready to grab at "<< q_current<<endl;
         pause_program();
-
-        // looping to take right hand cam
-        while (1) {
-            printf("taking right hand cam\n");
-            grab_right_hand_cam();
-            pause_program();
-        }
 
         // closing finger
         while (1) {
@@ -617,6 +721,7 @@ int main(int argc,char **argv){
             }
             pause_program();
         }
+
 
         // go up
         targets[0](2) += 0.3;
@@ -640,7 +745,10 @@ int main(int argc,char **argv){
         pause_program();
     }
     else {
-        analyze_right_hand_cam();
+        while (1) {
+            grab_right_hand_cam();
+            //pause_program();
+        }
     }
     return 0;
 }
