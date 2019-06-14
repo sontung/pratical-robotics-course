@@ -330,6 +330,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
     _depth.waitForNextRevision();
     cv::Mat img = CV(_rgb.get()).clone();
     cv::Mat depth_map = CV(_depth.get()).clone();
+    cv::imwrite("rgb_head.png", img);
     if(img.rows != depth_map.rows) return world_coordinates;
 
     // set the intrinsic camera parameters
@@ -503,13 +504,13 @@ void analyze_right_hand_cam() {
     cv::waitKey(0);
 }
 
-float analyze_right_hand_cam(cv::Mat im) {
+float analyze_right_hand_cam(cv::Mat im, bool show_im=false) {
 
     // find circle
     cv::Mat im_gray;
     cv::Mat detected_edges;
     cv::Mat dst;
-    int lowThreshold = 20;
+    int lowThreshold = 30;
     cv::cvtColor(im, im_gray, CV_BGR2GRAY);
     cv::blur( im_gray, detected_edges, cv::Size(3,3) );
     cv::Canny( detected_edges, detected_edges, lowThreshold, lowThreshold*3, 3 );
@@ -523,7 +524,7 @@ float analyze_right_hand_cam(cv::Mat im) {
     {
         inline bool operator() (const cv::Mat& struct1, const cv::Mat& struct2)
         {
-            cv::Point gripper_center = cv::Point(361, 106);
+            cv::Point gripper_center = cv::Point(320, 200);
             cv::Moments m1 = cv::moments(struct1);
             cv::Moments m2 = cv::moments(struct2);
 
@@ -533,8 +534,7 @@ float analyze_right_hand_cam(cv::Mat im) {
             double dis1 = pow(p1.x-gripper_center.x, 2) + pow(p1.y-gripper_center.y, 2);
             double dis2 = pow(p2.x-gripper_center.x, 2) + pow(p2.y-gripper_center.y, 2);
 
-            //return (cv::contourArea(struct1) < cv::contourArea(struct2) );
-            return dis1 > dis2;
+            return dis1 < dis2;
         }
     };
 
@@ -543,33 +543,30 @@ float analyze_right_hand_cam(cv::Mat im) {
     std::vector<cv::Mat> only_big_contours;
     findContours(dst, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
 
+    // remove small contours
     for (uint u=0;u<contours.size();u++) {
         double area = cv::contourArea(contours[u]);
-        if (area>30) only_big_contours.push_back(contours[u]);
-        //printf("%f \n", area);
+        if (area>0) only_big_contours.push_back(contours[u]);
     }
 
-    std::sort(only_big_contours.begin(), only_big_contours.end(), less_than_key());
-
-
-    interested_contours.push_back(only_big_contours[only_big_contours.size()-1]);
-    interested_contours.push_back(only_big_contours[only_big_contours.size()-2]);
-    interested_contours.push_back(only_big_contours[only_big_contours.size()-3]);
-    uint ball_ind = 0;
-    double indicator = 0.0;
-    for (uint u=0;u<interested_contours.size();u++) {
-        double area = cv::contourArea(interested_contours[u]);
-        if (abs(area-180) > indicator) {
-            ball_ind = u;
-            indicator = abs(area-180);
-        }
-        printf("%f dis=%f\n", area, abs(area-180));
+    // remove square contours
+    for (uint u=0;u<only_big_contours.size();u++) {
+        double area = cv::contourArea(only_big_contours[u]);
+        double peri = cv::arcLength(only_big_contours[u], true);
+        cv::Mat vertices;
+        cv::approxPolyDP(only_big_contours[u], vertices, 0.04*peri, true);
+        printf("area %f has old size=(%d, %d), new size=(%d, %d)\n", area,
+               only_big_contours[u].size().width, only_big_contours[u].size().height,
+               vertices.size().width, vertices.size().height);
+        if (vertices.size().height > 5) interested_contours.push_back(only_big_contours[u]);
     }
+
+    std::sort(interested_contours.begin(), interested_contours.end(), less_than_key());
 
     // draw contours
     cv::Scalar color( rand()&255, rand()&255, rand()&255 );
-    drawContours(im, interested_contours, -1, color);
-    cv::Moments m = cv::moments(interested_contours[ball_ind]);
+    drawContours(im, contours, -1, color);
+    cv::Moments m = cv::moments(interested_contours[0]);
     int cX = int(m.m10 / m.m00);
     int cY = int(m.m01 / m.m00);
     cv::Point p = cv::Point(cX, cY);
@@ -577,11 +574,11 @@ float analyze_right_hand_cam(cv::Mat im) {
 
     // draw grippers
     cv::Point mark1 = cv::Point(240, 105);
-    cv::drawMarker(im, mark1, cv::Scalar(0, 100, 100), 16, 3, 8);
+    //cv::drawMarker(im, mark1, cv::Scalar(0, 100, 100), 16, 3, 8);
     cv::Point mark2 = cv::Point(482, 106);
-    cv::drawMarker(im, mark2, cv::Scalar(0, 100, 100), 16, 3, 8);
-
-    cv::line(im, mark1, mark2, cv::Scalar(100, 100, 100));
+    cv::Point mark3 = cv::Point(320, 200);
+    cv::drawMarker(im, mark3, cv::Scalar(0, 100, 100), 16, 3, 8);
+    //cv::line(im, mark1, mark2, cv::Scalar(100, 100, 100));
 
     // compute how much devitation from gripper
     printf("ball center is at %d %d\n", cX, cY);
@@ -591,11 +588,14 @@ float analyze_right_hand_cam(cv::Mat im) {
 
     cv::imwrite("rhc_analyzed.png", im);
     cv::imwrite("rhc_edge.png", dst);
+
+    if (show_im) {
+        cv::imshow("noname", im);
+        cv::imshow("edge", dst);
+        cv::waitKey(0);
+    }
     return distance_to_grippers;
 
-    //    cv::imshow("noname", im);
-    //    cv::imshow("edge", dst);
-    //    cv::waitKey(10);
 }
 
 float grab_right_hand_cam() {
@@ -609,7 +609,7 @@ float grab_right_hand_cam() {
 
         if (rgb.total() > 0) {
             //return find_circle(rgb);
-            //cv::imwrite("right_hand_cam.png", rgb);
+            cv::imwrite("right_hand_cam.png", rgb);
             return analyze_right_hand_cam(rgb);
         }
     }
@@ -637,7 +637,7 @@ void go_down(rai::KinematicWorld &kine_world,
         pause_program();
 
         // grabbing image from cam right hand
-        double area = grab_right_hand_cam();
+        float area = grab_right_hand_cam();
         if (area < 0 || area > 13000.0) break;
         pause_program();
 
@@ -747,6 +747,7 @@ int main(int argc,char **argv){
     else {
         while (1) {
             grab_right_hand_cam();
+            break;
             //pause_program();
         }
     }

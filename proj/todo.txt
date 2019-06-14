@@ -1,6 +1,1 @@
-right hand to off set grasp:
- - take pic of perfect grasp
- - analyze pic
-grasp works in multiple balls scene
-grasp dont need x-z constraint once grabbed ball
-dropping dont need to reach table
+threshold image before analyzing rhc
