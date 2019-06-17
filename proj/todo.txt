@@ -1,1 +1,3 @@
-threshold image before analyzing rhc
+sometimes calibrating overshoots eg at -67
+
+
