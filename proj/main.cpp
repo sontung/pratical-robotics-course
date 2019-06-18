@@ -123,6 +123,8 @@ arr compute_world_coord(int cx, int cy, cv::Mat &depth, rai::KinematicWorld &kin
 
     arr image_coord = {(float)cx, (float)cy, depth.at<float>(cy, cx)};
 
+    printf("WC: transforming %d %d %f\n", cx, cy, depth.at<float>(cy, cx));
+
     // camera coordinates
     depthData2point(image_coord, Fxypxy); //transforms the point to camera xyz coordinates
 
@@ -227,25 +229,22 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
 
         // world coordinates
         cameraFrame->X.applyOnPoint(image_coord); //transforms into world coordinates
-
-        // hardcoded
-        //image_coord(0) += 0.1;
-        //image_coord(1) -= 0.01;
+        image_coord.append((double)i_avg/count);
+        image_coord.append((double)j_avg/count);
 
         world_coordinates.push_back(image_coord);
     }
 
 
     cv::imwrite("rgb_detected.png", img);
-    //cv::imshow("rgb", img); //white=2meters
-    //cv::imshow("depth", 0.5*depth_map); //white=2meters
     printf("\n");
     return world_coordinates;
 }
 
-void print_with_color(std::string text, int color=32) {
+void print_with_color(std::string text, int color=32, bool nl_included=true) {
     std::ostringstream stringStream;
-    stringStream << "\033[0;"<<color<<"m"<<text<<"\033[0m\n";
+    if (nl_included) stringStream << "\033[0;"<<color<<"m"<<text<<"\033[0m\n";
+    else stringStream << "\033[0;"<<color<<"m"<<text<<"\033[0m";
     cout<<stringStream.str();
 }
 
@@ -296,13 +295,9 @@ float analyze_right_hand_cam(cv::Mat im, bool show_im=false) {
 
     // remove square contours
     for (uint u=0;u<only_big_contours.size();u++) {
-        double area = cv::contourArea(only_big_contours[u]);
         double peri = cv::arcLength(only_big_contours[u], true);
         cv::Mat vertices;
         cv::approxPolyDP(only_big_contours[u], vertices, 0.04*peri, true);
-        printf("area %f has old size=(%d, %d), new size=(%d, %d)\n", area,
-               only_big_contours[u].size().width, only_big_contours[u].size().height,
-               vertices.size().width, vertices.size().height);
         if (vertices.size().height > 5) interested_contours.push_back(only_big_contours[u]);
     }
 
@@ -319,17 +314,21 @@ float analyze_right_hand_cam(cv::Mat im, bool show_im=false) {
 
     // draw grippers
     cv::Point mark1 = cv::Point(240, 105);
-    //cv::drawMarker(im, mark1, cv::Scalar(0, 100, 100), 16, 3, 8);
     cv::Point mark2 = cv::Point(482, 106);
     cv::Point mark3 = cv::Point(320, 200);
     cv::drawMarker(im, mark3, cv::Scalar(0, 100, 100), 16, 3, 8);
-    //cv::line(im, mark1, mark2, cv::Scalar(100, 100, 100));
 
     // compute how much devitation from gripper
     printf("ball center is at %d %d\n", cX, cY);
     float slope = (float)(mark1.y-mark2.y)/(mark1.x-mark2.x);
     float distance_to_grippers = (slope*cX-cY+mark2.y-slope*mark2.x)/sqrt(slope*slope+1);
     printf("distance to gippers is %f\n", distance_to_grippers);
+
+    // documenting abnormal situation
+    if (abs(distance_to_grippers) <= 60) {
+        cv::imwrite("rhc_analyzed_abnormal.png", im);
+        cv::imwrite("rhc_edge_abnormal.png", dst);
+    }
 
     cv::imwrite("rhc_analyzed.png", im);
     cv::imwrite("rhc_edge.png", dst);
@@ -343,15 +342,15 @@ float analyze_right_hand_cam(cv::Mat im, bool show_im=false) {
 
 }
 
-arr analyze_scene(rai::KinematicWorld &kine_world, bool show_img=false) {
+arr analyze_scene(rai::KinematicWorld &kine_world,
+                  arr ball_pixel_coord,
+                  bool show_img=false) {
     Var<byteA> _rgb;
     Var<floatA> _depth;
     RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
     _depth.waitForNextRevision();
     cv::Mat im = CV(_rgb.get()).clone();
     cv::Mat depth_map = CV(_depth.get()).clone();
-
-    //cv::Mat im = cv::imread("rgb_head2.png");
 
     // thresholded
     cv::Mat im_blurred;
@@ -381,24 +380,34 @@ arr analyze_scene(rai::KinematicWorld &kine_world, bool show_img=false) {
         double peri = cv::arcLength(big_contours[u], true);
         cv::Mat vertices;
         cv::approxPolyDP(big_contours[u], vertices, 0.04*peri, true);
-        printf("area %f has old size=(%d, %d), new size=(%d, %d)\n", area,
+        printf("SCENE ANALYSIS: area %f has old size=(%d, %d), new size=(%d, %d)\n", area,
                big_contours[u].size().width, big_contours[u].size().height,
                vertices.size().width, vertices.size().height);
         big_contours[u] = vertices;
     }
 
-    // determine empty square center
-    double biggest = -1.0;
+    // determine target square center
+    double biggest_distance = -1.0;
     uint idx = 0;
+    double avg_area = 0.0;
     for (uint u=0;u<big_contours.size();u++) {
         double area = cv::contourArea(big_contours[u]);
-        if (area > biggest) {
-            biggest = area;
+        avg_area += area;
+    }
+    avg_area /= big_contours.size();
+    for (uint u=0;u<big_contours.size();u++) {
+        double area = cv::contourArea(big_contours[u]);
+        cv::Moments m = cv::moments(big_contours[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        double distance_to_ball_target = pow(cX-ball_pixel_coord(0), 2) + pow(cY-ball_pixel_coord(1), 2);
+        if (distance_to_ball_target > biggest_distance && area > avg_area/2.0) {
+            biggest_distance = distance_to_ball_target;
             idx = u;
         }
     }
 
-    // determine square center world coord
+    // determine target square center world coord
     cv::Moments m = cv::moments(big_contours[idx]);
     int cX = int(m.m10 / m.m00);
     int cY = int(m.m01 / m.m00);
@@ -407,7 +416,17 @@ arr analyze_scene(rai::KinematicWorld &kine_world, bool show_img=false) {
     cv::drawMarker(im, p, color_center, 16, 3, 8);
     arr wc = compute_world_coord(cX, cY, depth_map, kine_world);
 
+    // mark ball
+    p = cv::Point(ball_pixel_coord(0), ball_pixel_coord(1));
+    cv::drawMarker(im, p, color, 16, 3, 8);
+
     drawContours(im, big_contours, -1, color);
+
+    // documenting abnormal behaviours
+    if (big_contours.size() > 2) {
+        printf("SCENE ANALYSIS: abnormal situation, documenting...\n");
+        cv::imwrite("abnormal_scene_analysis.png", im);
+    }
 
     if (show_img) {
         cv::imshow("image", im);
@@ -416,7 +435,13 @@ arr analyze_scene(rai::KinematicWorld &kine_world, bool show_img=false) {
         cv::waitKey(0);
     }
 
+    cv::imwrite("rgb_scene.png", im);
+
     return wc;
+
+}
+
+void analyze_video() {
 
 }
 
@@ -442,108 +467,134 @@ int main(int argc,char **argv){
     bool testing_trivial = false;
 
     // basic setup
+    bool first_time_run = true;
     rai::KinematicWorld C = setup_kinematic_world();
     RobotOperation B(C);
+    const arr q_home = C.getJointState();
+    arr q_current;
+    if (!testing_trivial) rai::initCmdLine(argc,argv);
     cout <<"joint names: " <<B.getJointNames() <<endl;
 
-    if (!testing_trivial) {
+    while (1) {
+        if (!testing_trivial) {
+            arr y, J;
+            if (first_time_run) {
+                cout<<"will send motion. confirm?"<<endl;
+                pause_program();
+                first_time_run = false;
+            }
 
-        rai::initCmdLine(argc,argv);
-
-        arr y, J;
-        C.evalFeature(y, J, FS_vectorZDiff, {"pointer", "obj"});
-        cout <<"vector Z diff: " << y <<endl;
-        C.evalFeature(y, J, FS_quaternionDiff, {"pointer", "obj"});
-        cout <<"quaternion diff: " << y <<endl;
-
-        cout<<"will send motion. confirm?"<<endl;
-        pause_program();
-
-        // homing
-        print_with_color("moving to home position");
-        arr q_home = C.getJointState();
-        if (motion) B.moveHard(q_home);
-        cout<<"q home: "<<q_home<<endl;
-        pause_program_auto();
-
-        // perceiving target point
-        print_with_color("doing perception");
-        std::vector<arr> targets;
-        while(1) {
-            targets = perception(C);
-            if (targets.size()>0) break;
-        }
-        for (uint i=0;i<targets.size();i++) cout<<"detected: "<<targets[i]<<endl;
-        pause_program_auto();
-
-        // ik to target
-        arr q_current;
-        print_with_color("doing motion");
-
-        targets[0](2) += 0.15;
-        q_current = ik_compute(C, B, targets[0], q_home, motion);
-        pause_program_auto();
-
-        // analyzing right hand cam
-        float distance_to_grippers = grab_right_hand_cam();
-        while (abs(distance_to_grippers) > 80) {
-            if (distance_to_grippers > 0) targets[0](1) += 0.01;
-            else if (distance_to_grippers < 0) targets[0](1) -= 0.01;
-            q_current = ik_compute(C, B, targets[0], q_home, motion);
+            // homing
+            print_with_color("moving to home position");
+            if (motion) B.moveHard(q_home);
+            cout<<"q home: "<<q_home<<endl;
             pause_program_auto();
-            distance_to_grippers = grab_right_hand_cam();
-        }
 
-        targets[0](2) = 0.81;
-        q_current = ik_compute(C, B, targets[0], q_home, motion);
-        cout<<"Ready to grab at "<< q_current<<endl;
-        pause_program_auto(9);
+            // make sure gripper is open
+            while (1) {
+                q_current = B.getJointPositions();
+                if (!B.getGripperGrabbed("right")) {
+                    q_current(-2) = 0;
+                    if (motion) B.moveHard(q_current);
+                    break;
+                }
+                pause_program_auto();
+            }
+            print_with_color("gripper status: ", 32, false);
+            printf("%d\n", B.getGripperOpened("right"));
 
-        // closing finger
-        while (1) {
-            q_current = B.getJointPositions();
-            cout <<" q:" <<q_current
-                <<" gripper right: " <<B.getGripperOpened("right") <<' '<<B.getGripperGrabbed("right")
-               <<endl;
-            if (!B.getGripperGrabbed("right")) {
-                q_current(-2) = 1;
-                if (motion) B.moveHard(q_current);
-                break;
+            // perceiving target point
+            print_with_color("doing perception");
+            std::vector<arr> res;
+            std::vector<arr> targets;
+            std::vector<arr> pixel_coords;
+            while(1) {
+                res = perception(C);
+                if (res.size()>0) break;
+            }
+            for (uint i=0;i<res.size();i++) {
+                arr coords = {res[i](0), res[i](1), res[i](2)};
+                arr pix = {res[i](3), res[i](4)};
+                targets.push_back(coords);
+                pixel_coords.push_back(pix);
+                cout<<"detected: "<<res[i]<<endl;
             }
             pause_program_auto();
+
+            // ik to target
+            print_with_color("doing motion");
+
+            targets[0](2) += 0.15;
+            q_current = ik_compute(C, B, targets[0], q_home, motion);
+            pause_program_auto();
+
+            // analyzing right hand cam
+            print_with_color("calibrating ...");
+            float distance_to_grippers = grab_right_hand_cam();
+            while (1) {
+                if (abs(distance_to_grippers) > 80) {
+                    if (distance_to_grippers > 0) targets[0](1) += 0.007;
+                    else if (distance_to_grippers < 0) targets[0](1) -= 0.007;
+                } else if (abs(distance_to_grippers) < 70) {
+                    if (distance_to_grippers > 0) targets[0](1) -= 0.007;
+                    else if (distance_to_grippers < 0) targets[0](1) += 0.007;
+                }
+                q_current = ik_compute(C, B, targets[0], q_home, motion);
+                pause_program_auto();
+                distance_to_grippers = grab_right_hand_cam();
+                if (abs(distance_to_grippers) < 80 && abs(distance_to_grippers) >= 70) break;
+            }
+            print_with_color("calibrating done.");
+
+            targets[0](2) = 0.81;
+            q_current = ik_compute(C, B, targets[0], q_home, motion);
+            cout<<"Ready to grab at "<< q_current<<endl;
+            pause_program_auto(9);
+
+            // closing finger
+            while (1) {
+                q_current = B.getJointPositions();
+                if (!B.getGripperGrabbed("right")) {
+                    q_current(-2) = 1;
+                    if (motion) B.moveHard(q_current);
+                    break;
+                }
+                pause_program_auto();
+            }
+
+            // go up
+            targets[0](2) += 0.15;
+            q_current = ik_compute_with_grabbing(C, B, targets[0], q_home, motion);
+            pause_program_auto();
+
+            // go to target bin
+            cout<<"now go to target bin"<<endl;
+            arr bin_target = analyze_scene(C, pixel_coords[0]);
+            bin_target(2) += 0.15;
+            q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
+            pause_program_auto();
+            bin_target(2) = 0.83;
+            q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
+            pause_program_auto();
+
+            // release ball
+            q_current(-2) = 0;
+            if (motion) B.moveHard(q_current);
+            pause_program_auto();
+
+            // homing again
+            print_with_color("moving to home position");
+            if (motion) B.moveHard(q_home);
+            pause_program_auto();
+
         }
-
-        // go up
-        targets[0](2) += 0.3;
-        q_current = ik_compute_with_grabbing(C, B, targets[0], q_home, motion);
-        pause_program_auto();
-
-        // go to target bin
-        cout<<"now go to target bin"<<endl;
-        arr bin_target = analyze_scene(C);
-        bin_target(2) += 0.3;
-        q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
-        pause_program_auto();
-        bin_target(2) = 0.9;
-        q_current = ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
-        pause_program_auto();
-
-        // release ball
-        q_current(-2) = 0;
-        if (motion) B.moveHard(q_current);
-        pause_program_auto();
-
-        // homing again
-        print_with_color("moving to home position");
-        if (motion) B.moveHard(q_home);
-        pause_program();
-
-    }
-    else {
-        while (1) {
-            arr res = analyze_scene(C, true);
-            break;
-            //pause_program();
+        else {
+            while (1) {
+                arr dummy = {10, 10};
+                arr res = analyze_scene(C, dummy, true);
+                break;
+                //pause_program();
+            }
         }
     }
     return 0;

@@ -9,7 +9,7 @@ void pause_program() {
     std::cin.get();
 }
 
-void pause_program_auto(uint time=4) {
+void pause_program_auto(uint time=5) {
     cout<<"Waiting to complete motion"<<endl;
     sleep(time);
 }
@@ -90,6 +90,7 @@ arr ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
     }
 
     printf("IK: done in %d iters with error=%f at iter %d\n", i, best_error, best_iter);
+    q_best(-2) = 0;
     if (sending_motion) robot_op.move({q_best}, {time});
     kine_world.setJointState(q_best);
 
