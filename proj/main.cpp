@@ -510,15 +510,15 @@ void remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Ma
     }
 }
 
-void analyze_video() {
-    // grabbing images from robot
+// analyze to return which ball moves, 0-red, 1-green
+int analyze_video(cv::Mat &first_frame) {
+    int res = -1;
+
     Var<byteA> _rgb;
     Var<floatA> _depth;
     RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
     _depth.waitForNextRevision();
 
-    cv::Mat first_frame = CV(_rgb.get()).clone();
-    cv::Mat prev_frame = CV(_rgb.get()).clone();
     cv::Mat curr_frame;
     cv::Mat delta;
     cv::Mat delta2;
@@ -527,24 +527,56 @@ void analyze_video() {
     cv::cvtColor(first_frame, first_gray, cv::COLOR_BGR2GRAY);
     cv::blur(first_gray, first_gray, cv::Size(3, 3));
     cv::Mat curr_gray;
+    cv::Mat curr_hsv;
+    cv::Mat green_img;
+    cv::Mat red_img;
 
     std::vector<cv::Mat> square_contours = find_square_contours(first_frame);
 
-    while (1) {
-        curr_frame = CV(_rgb.get()).clone();
-        cv::cvtColor(curr_frame, curr_gray, cv::COLOR_BGR2GRAY);
-        cv::blur(curr_gray, curr_gray, cv::Size(3, 3));
+    // grab current frame
+    curr_frame = CV(_rgb.get()).clone();
+    if (curr_frame.total() <= 0) return res;
+    cv::blur(curr_frame, curr_frame, cv::Size(3, 3));
+    cv::cvtColor(curr_frame, curr_gray, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(curr_frame, curr_hsv, cv::COLOR_BGR2HSV);
 
-        cv::absdiff(first_gray, curr_gray, delta);
-        cv::threshold(delta, delta2, 25, 255, cv::THRESH_BINARY);
-        remove_points_outside_contours(delta2, square_contours);
-        cv::imshow("first frame", first_frame);
-        cv::imshow("diff from first gray thresholded", delta2);
-        cv::waitKey(1);
-        prev_frame = curr_frame;
+    // detect moving pixels
+    cv::absdiff(first_gray, curr_gray, delta);
+    cv::threshold(delta, delta2, 25, 255, cv::THRESH_BINARY);
+    remove_points_outside_contours(delta2, square_contours);
+
+    std::vector<cv::Mat> contours;
+    findContours(delta2, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(curr_frame, contours, -1, color);
+
+    // check if moving pixels are balls
+    cv::inRange(curr_hsv, cv::Scalar(40, 100, 100), cv::Scalar(70, 255, 255), green_img);
+    cv::inRange(curr_hsv, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), red_img);
+
+    // remove moving pixels that is not green or red
+    for (uint u=0; u<contours.size(); u++) {
+        double area = cv::contourArea(contours[u]);
+        if (area > 0) {
+            cv::Moments m = cv::moments(contours[u]);
+            int cX = int(m.m10 / m.m00);
+            int cY = int(m.m01 / m.m00);
+            if (green_img.at<uchar>(cY, cX) > 0) {
+                res = 1;
+            } else if (red_img.at<uchar>(cY, cX) > 0) {
+                res = 0;
+            }
+        }
+
     }
 
+    cv::imshow("first frame", first_frame);
+    cv::imshow("diff from first gray thresholded", delta2);
+    cv::imshow("curr frame", curr_frame);
+    cv::imshow("green", green_img);
+    cv::waitKey(1);
 
+    return res;
 }
 
 float grab_right_hand_cam() {
@@ -692,7 +724,25 @@ int main(int argc,char **argv){
         }
         else {
             while (1) {
-                analyze_video();
+
+                // grabbing images from robot
+                Var<byteA> _rgb;
+                Var<floatA> _depth;
+                RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
+                _depth.waitForNextRevision();
+
+                cv::Mat first_frame;
+                first_frame = CV(_rgb.get()).clone();
+                int r;
+                r = analyze_video(first_frame);
+                while (r == -1) {
+                    first_frame = CV(_rgb.get()).clone();
+                    if (first_frame.total() > 0) r = analyze_video(first_frame);
+                    sleep(1);
+                }
+                printf("Ball = %d\n", r);
+
+                pause_program_auto();
             }
         }
     }

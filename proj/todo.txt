@@ -1,6 +1,6 @@
 sometimes calibrating overshoots eg at -67
 analyzing scene to be careful
-video understanding
+video understanding, to be integrated into the loop
 refactoring perception code
 cheap ik will make it faster
 threaded to visualize images
