@@ -441,7 +441,109 @@ arr analyze_scene(rai::KinematicWorld &kine_world,
 
 }
 
+std::vector<cv::Mat> find_square_contours(cv::Mat &im) {
+    // thresholded
+    cv::Mat im_blurred;
+    cv::Mat hsv_im;
+    cv::Mat thresholded_img;
+    cv::blur(im, im_blurred, cv::Size(3, 3));
+    cv::cvtColor(im_blurred, hsv_im, cv::COLOR_BGR2HSV);
+    cv::inRange(hsv_im, cv::Scalar(40, 100, 100), cv::Scalar(70, 255, 255), thresholded_img);//green
+    cv::inRange(hsv_im, cv::Scalar(20, 100, 100), cv::Scalar(30, 255, 255), thresholded_img);//yellow
+    remove_outliers(thresholded_img);
+
+    // contour detection
+    std::vector<cv::Mat> contours;
+    findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+
+    // remove small contours
+    std::vector<cv::Mat> big_contours;
+    for (uint u=0;u<contours.size();u++) {
+        double area = cv::contourArea(contours[u]);
+        if (area>10) big_contours.push_back(contours[u]);
+    }
+
+    // approximate contours
+    for (uint u=0;u<big_contours.size();u++) {
+        double peri = cv::arcLength(big_contours[u], true);
+        cv::Mat vertices;
+        double t = 0.1;
+        cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
+
+        while (vertices.size().height > 4) {
+            t -= 0.01;
+            cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
+        }
+
+        big_contours[u] = vertices;
+    }
+
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(im, big_contours, -1, color);
+
+    return big_contours;
+}
+
+void remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Mat> &contours) {
+    int rows = thresholded_img.rows;
+    int cols = thresholded_img.cols;
+    std::vector<std::vector<int>> points_inside_contours;
+    for (int i=0;i<rows;i++) {
+        for (int j=0;j<cols;j++) {
+            if (thresholded_img.at<uchar>(i, j) > 0) {
+                for (uint u=0;u<contours.size();u++) {
+                    double d = cv::pointPolygonTest(contours[u], cv::Point(j, i), true);
+                    if (d >= 0) {
+                        std::vector<int> valid = {i, j};
+                        points_inside_contours.push_back(valid);
+                    }
+                }
+                thresholded_img.at<uchar>(i, j) = 0;
+            }
+        }
+    }
+
+    for (uint u=0; u<points_inside_contours.size(); u++) {
+        int i = points_inside_contours[u][0];
+        int j = points_inside_contours[u][1];
+        thresholded_img.at<uchar>(i, j) = 255;
+    }
+}
+
 void analyze_video() {
+    // grabbing images from robot
+    Var<byteA> _rgb;
+    Var<floatA> _depth;
+    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
+    _depth.waitForNextRevision();
+
+    cv::Mat first_frame = CV(_rgb.get()).clone();
+    cv::Mat prev_frame = CV(_rgb.get()).clone();
+    cv::Mat curr_frame;
+    cv::Mat delta;
+    cv::Mat delta2;
+
+    cv::Mat first_gray;
+    cv::cvtColor(first_frame, first_gray, cv::COLOR_BGR2GRAY);
+    cv::blur(first_gray, first_gray, cv::Size(3, 3));
+    cv::Mat curr_gray;
+
+    std::vector<cv::Mat> square_contours = find_square_contours(first_frame);
+
+    while (1) {
+        curr_frame = CV(_rgb.get()).clone();
+        cv::cvtColor(curr_frame, curr_gray, cv::COLOR_BGR2GRAY);
+        cv::blur(curr_gray, curr_gray, cv::Size(3, 3));
+
+        cv::absdiff(first_gray, curr_gray, delta);
+        cv::threshold(delta, delta2, 25, 255, cv::THRESH_BINARY);
+        remove_points_outside_contours(delta2, square_contours);
+        cv::imshow("first frame", first_frame);
+        cv::imshow("diff from first gray thresholded", delta2);
+        cv::waitKey(1);
+        prev_frame = curr_frame;
+    }
+
 
 }
 
@@ -464,7 +566,7 @@ float grab_right_hand_cam() {
 
 int main(int argc,char **argv){
     bool motion = true;
-    bool testing_trivial = false;
+    bool testing_trivial = true;
 
     // basic setup
     bool first_time_run = true;
@@ -590,10 +692,7 @@ int main(int argc,char **argv){
         }
         else {
             while (1) {
-                arr dummy = {10, 10};
-                arr res = analyze_scene(C, dummy, true);
-                break;
-                //pause_program();
+                analyze_video();
             }
         }
     }

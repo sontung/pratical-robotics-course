@@ -2,3 +2,5 @@ sometimes calibrating overshoots eg at -67
 analyzing scene to be careful
 video understanding
 refactoring perception code
+cheap ik will make it faster
+threaded to visualize images
