@@ -134,6 +134,117 @@ arr compute_world_coord(int cx, int cy, cv::Mat &depth, rai::KinematicWorld &kin
     return image_coord;
 }
 
+std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr pixel_location) {
+    rai::Frame *cameraFrame = kine_world.getFrameByName("camera");
+    std::vector<arr> world_coordinates;
+
+    // grabbing images from robot
+    Var<byteA> _rgb;
+    Var<floatA> _depth;
+    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
+    _depth.waitForNextRevision();
+    cv::Mat img = CV(_rgb.get()).clone();
+    cv::Mat depth_map = CV(_depth.get()).clone();
+    cv::imwrite("rgb_head.png", img);
+    if(img.rows != depth_map.rows) return world_coordinates;
+
+    // set the intrinsic camera parameters
+    arr Fxypxy = {538.273, 544.277, 307.502, 249.954};
+    Fxypxy /= 0.982094;
+
+    cv::Mat img2;
+    cv::Mat hsv_image2;
+
+    cv::Mat thresholded_img;
+
+    // blur
+    for ( int u = 1; u < 31; u = u + 2 ){ cv::GaussianBlur( img, img2, cv::Size( u, u ), 0, 0 ); }
+    cv::cvtColor(img2, hsv_image2, cv::COLOR_BGR2HSV);
+
+    // threshold
+    if (ball_color==0) cv::inRange(hsv_image2, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), thresholded_img);//red
+    else if (ball_color==1) cv::inRange(hsv_image2, cv::Scalar(35, 100, 100), cv::Scalar(55, 255, 255), thresholded_img);//green
+
+    // remove outliers
+    int rows = thresholded_img.rows;
+    int cols = thresholded_img.cols;
+    int i_avg = 0;
+    int j_avg = 0;
+    int count = 0;
+    for (int i=0;i<rows;i++) {
+        for (int j=0;j<cols;j++) {
+            if (check_neighbor(thresholded_img, 10, i, j)) {
+                thresholded_img.at<uchar>(i, j) = 255;
+                i_avg += i;
+                j_avg += j;
+                count += 1;
+            }
+            else thresholded_img.at<uchar>(i, j) = 0;
+        }
+    }
+
+    std::vector<cv::Mat> contours;
+    findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(img, contours, -1, color);
+
+    printf("detected %d balls of color %d\n", contours.size(), ball_color);
+
+    // image coordinates -> world coordinates
+    double closest_distance = -1;
+    uint idx = 0;
+    for (uint u=0;u<contours.size();u++) {
+        double area = cv::contourArea(contours[u]);
+        if (area <= 0) continue;
+        cv::Moments m = cv::moments(contours[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        double distance = pow(cX-pixel_location(0), 2) + pow(cY-pixel_location(1), 2);
+        if (distance < closest_distance || closest_distance < 0) {
+            closest_distance = distance;
+            idx = u;
+        }
+    }
+
+
+    std::vector<float> all_depths;
+    i_avg = 0;
+    j_avg = 0;
+    count = 0;
+    for (int v=0;v<contours[idx].size().height;v++) {
+        cv::Point point = contours[idx].at<cv::Point>(v);
+        i_avg += point.x;
+        j_avg += point.y;
+        count ++;
+        float current_depth = depth_map.at<float>(point.y, point.x);
+        all_depths.push_back(current_depth);
+    }
+    cv::Point mark = cv::Point(i_avg/count, j_avg/count);
+    cv::drawMarker(img, mark, cv::Scalar(0, 0, 0), 16, 3, 8);
+
+    std::nth_element(all_depths.begin(),
+                     all_depths.begin() + all_depths.size()/2,
+                     all_depths.end());
+    float median_depth = all_depths[all_depths.size()/2];
+
+    arr image_coord = {(float)i_avg/count, (float)j_avg/count, median_depth};
+    cout<<"median depth "<<image_coord<<endl;
+
+    // camera coordinates
+    depthData2point(image_coord, Fxypxy); //transforms the point to camera xyz coordinates
+
+    // world coordinates
+    cameraFrame->X.applyOnPoint(image_coord); //transforms into world coordinates
+    image_coord.append((double)i_avg/count);
+    image_coord.append((double)j_avg/count);
+
+    world_coordinates.push_back(image_coord);
+
+    cv::imwrite("rgb_detected.png", img);
+    printf("\n");
+    return world_coordinates;
+}
+
 std::vector<arr> perception(rai::KinematicWorld &kine_world) {
     rai::Frame *cameraFrame = kine_world.getFrameByName("camera");
     std::vector<arr> world_coordinates;
@@ -290,7 +401,7 @@ float analyze_right_hand_cam(cv::Mat im, bool show_im=false) {
     // remove small contours
     for (uint u=0;u<contours.size();u++) {
         double area = cv::contourArea(contours[u]);
-        if (area>0) only_big_contours.push_back(contours[u]);
+        if (area>10) only_big_contours.push_back(contours[u]);
     }
 
     // remove square contours
@@ -448,8 +559,7 @@ std::vector<cv::Mat> find_square_contours(cv::Mat &im) {
     cv::Mat thresholded_img;
     cv::blur(im, im_blurred, cv::Size(3, 3));
     cv::cvtColor(im_blurred, hsv_im, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv_im, cv::Scalar(40, 100, 100), cv::Scalar(70, 255, 255), thresholded_img);//green
-    cv::inRange(hsv_im, cv::Scalar(20, 100, 100), cv::Scalar(30, 255, 255), thresholded_img);//yellow
+    cv::inRange(hsv_im, cv::Scalar(17, 100, 100), cv::Scalar(37, 255, 255), thresholded_img);//yellow
     remove_outliers(thresholded_img);
 
     // contour detection
@@ -511,15 +621,10 @@ void remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Ma
 }
 
 // analyze to return which ball moves, 0-red, 1-green
-int analyze_video(cv::Mat &first_frame) {
+int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location) {
     int res = -1;
 
-    Var<byteA> _rgb;
-    Var<floatA> _depth;
-    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
-    _depth.waitForNextRevision();
 
-    cv::Mat curr_frame;
     cv::Mat delta;
     cv::Mat delta2;
 
@@ -534,8 +639,6 @@ int analyze_video(cv::Mat &first_frame) {
     std::vector<cv::Mat> square_contours = find_square_contours(first_frame);
 
     // grab current frame
-    curr_frame = CV(_rgb.get()).clone();
-    if (curr_frame.total() <= 0) return res;
     cv::blur(curr_frame, curr_frame, cv::Size(3, 3));
     cv::cvtColor(curr_frame, curr_gray, cv::COLOR_BGR2GRAY);
     cv::cvtColor(curr_frame, curr_hsv, cv::COLOR_BGR2HSV);
@@ -546,35 +649,46 @@ int analyze_video(cv::Mat &first_frame) {
     remove_points_outside_contours(delta2, square_contours);
 
     std::vector<cv::Mat> contours;
+    std::vector<cv::Mat> big_contours;
+
     findContours(delta2, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
     cv::Scalar color( rand()&255, rand()&255, rand()&255 );
-    drawContours(curr_frame, contours, -1, color);
+    for (uint u=0; u<contours.size(); u++) {
+        double area = cv::contourArea(contours[u]);
+        printf("area %f\n", area);
+        if (area > 100) big_contours.push_back(contours[u]);
+    }
+    drawContours(curr_frame, big_contours, -1, color);
 
     // check if moving pixels are balls
-    cv::inRange(curr_hsv, cv::Scalar(40, 100, 100), cv::Scalar(70, 255, 255), green_img);
+    cv::inRange(curr_hsv, cv::Scalar(35, 100, 100), cv::Scalar(55, 255, 255), green_img);
     cv::inRange(curr_hsv, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), red_img);
 
     // remove moving pixels that is not green or red
-    for (uint u=0; u<contours.size(); u++) {
-        double area = cv::contourArea(contours[u]);
+    for (uint u=0; u<big_contours.size(); u++) {
+        double area = cv::contourArea(big_contours[u]);
         if (area > 0) {
-            cv::Moments m = cv::moments(contours[u]);
+            cv::Moments m = cv::moments(big_contours[u]);
             int cX = int(m.m10 / m.m00);
             int cY = int(m.m01 / m.m00);
             if (green_img.at<uchar>(cY, cX) > 0) {
                 res = 1;
+                pixel_location(0) = cX;
+                pixel_location(1) = cY;
             } else if (red_img.at<uchar>(cY, cX) > 0) {
                 res = 0;
+                pixel_location(0) = cX;
+                pixel_location(1) = cY;
             }
         }
 
     }
 
-    cv::imshow("first frame", first_frame);
-    cv::imshow("diff from first gray thresholded", delta2);
-    cv::imshow("curr frame", curr_frame);
-    cv::imshow("green", green_img);
-    cv::waitKey(1);
+    //cv::imshow("first frame", first_frame);
+    //cv::imshow("moving", delta2);
+    //cv::imshow("curr frame", curr_frame);
+    //cv::imshow("green", green_img);
+    //cv::waitKey(0);
 
     return res;
 }
@@ -596,11 +710,40 @@ float grab_right_hand_cam() {
     }
 }
 
+void calibrate_threshold_values() {
+    Var<byteA> _rgb;
+    Var<floatA> _depth;
+    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
+    _depth.waitForNextRevision();
+    while (1) {
+
+        cv::Mat im = CV(_rgb.get()).clone();
+        cv::Mat hsv;
+        cv::Mat thresholded;
+        if (im.total() > 0) {
+            cv::cvtColor(im, hsv, cv::COLOR_BGR2HSV);
+
+            cv::inRange(hsv, cv::Scalar(17, 100, 100), cv::Scalar(37, 255, 255), thresholded);//yellow
+            cv::inRange(hsv, cv::Scalar(93, 100, 100), cv::Scalar(113, 255, 255), thresholded);//blue
+            cv::inRange(hsv, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), thresholded);//red
+            //cv::inRange(hsv, cv::Scalar(35, 100, 100), cv::Scalar(55, 255, 255), thresholded);//green
+
+            cv::imshow("orig", im);
+            cv::imshow("thresholded", thresholded);
+            cv::waitKey(1);
+        }
+    }
+}
+
 int main(int argc,char **argv){
     bool motion = true;
-    bool testing_trivial = true;
+    bool testing_trivial = false;
 
     // basic setup
+    Var<byteA> _rgb;
+    Var<floatA> _depth;
+    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
+    _depth.waitForNextRevision();
     bool first_time_run = true;
     rai::KinematicWorld C = setup_kinematic_world();
     RobotOperation B(C);
@@ -637,13 +780,34 @@ int main(int argc,char **argv){
             print_with_color("gripper status: ", 32, false);
             printf("%d\n", B.getGripperOpened("right"));
 
+            // asking to change balls
+            int changed_ball = 1;
+            arr pix = {0, 0};
+//            printf("Ready\n");
+//            cv::Mat orig_frame = CV(_rgb.get()).clone();
+//            while (1) {
+//                orig_frame = CV(_rgb.get()).clone();
+//                if (orig_frame.total() > 0) break;
+//            }
+//            printf("Change balls\n");
+//            pause_program();
+//            cv::Mat next_frame = CV(_rgb.get()).clone();
+//            while (1) {
+//                next_frame = CV(_rgb.get()).clone();
+//                if (next_frame.total() > 0) break;
+//            }
+//            changed_ball = analyze_video(orig_frame, next_frame, pix);
+//            printf("Ball target color = %d\n", changed_ball);
+//            pause_program();
+
             // perceiving target point
             print_with_color("doing perception");
             std::vector<arr> res;
             std::vector<arr> targets;
             std::vector<arr> pixel_coords;
             while(1) {
-                res = perception(C);
+                if (pix(0) > 0 || pix(1) > 0) res = perception(C, changed_ball, pix);
+                else res = perception(C);
                 if (res.size()>0) break;
             }
             for (uint i=0;i<res.size();i++) {
@@ -666,17 +830,17 @@ int main(int argc,char **argv){
             print_with_color("calibrating ...");
             float distance_to_grippers = grab_right_hand_cam();
             while (1) {
-                if (abs(distance_to_grippers) > 80) {
+                if (abs(distance_to_grippers) > 70) {
                     if (distance_to_grippers > 0) targets[0](1) += 0.007;
                     else if (distance_to_grippers < 0) targets[0](1) -= 0.007;
-                } else if (abs(distance_to_grippers) < 70) {
+                } else if (abs(distance_to_grippers) < 60) {
                     if (distance_to_grippers > 0) targets[0](1) -= 0.007;
                     else if (distance_to_grippers < 0) targets[0](1) += 0.007;
                 }
                 q_current = ik_compute(C, B, targets[0], q_home, motion);
                 pause_program_auto();
                 distance_to_grippers = grab_right_hand_cam();
-                if (abs(distance_to_grippers) < 80 && abs(distance_to_grippers) >= 70) break;
+                if (abs(distance_to_grippers) < 70 && abs(distance_to_grippers) >= 60) break;
             }
             print_with_color("calibrating done.");
 
@@ -723,27 +887,13 @@ int main(int argc,char **argv){
 
         }
         else {
+
             while (1) {
-
-                // grabbing images from robot
-                Var<byteA> _rgb;
-                Var<floatA> _depth;
-                RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
-                _depth.waitForNextRevision();
-
-                cv::Mat first_frame;
-                first_frame = CV(_rgb.get()).clone();
-                int r;
-                r = analyze_video(first_frame);
-                while (r == -1) {
-                    first_frame = CV(_rgb.get()).clone();
-                    if (first_frame.total() > 0) r = analyze_video(first_frame);
-                    sleep(1);
-                }
-                printf("Ball = %d\n", r);
-
-                pause_program_auto();
+                float distance_to_grippers = grab_right_hand_cam();
+                printf("distance = %f\n", distance_to_grippers);
             }
+
+            //            calibrate_threshold_values();
         }
     }
     return 0;

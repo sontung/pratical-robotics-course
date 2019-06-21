@@ -1,5 +1,4 @@
-sometimes calibrating overshoots eg at -67
-analyzing scene to be careful
+write code for calibrating threshold values
 video understanding, to be integrated into the loop
 refactoring perception code
 cheap ik will make it faster

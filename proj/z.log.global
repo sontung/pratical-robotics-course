@@ -1,5 +1,15 @@
 ** compiled at:     May 24 2019 18:12:36
 ** execution start: 1970-01-01_01:00:00.000000
+graph.cpp:RegistryInitializer:1255(3) opening config file 'rai.cfg'
+graph.cpp:RegistryInitializer:1261(3)  - failed
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.tpp:getParameterBase:65(3)          rosNodeName = sontung [N3rai6StringE] (default!)
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
+util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
 util.cpp:cd_start:1110(3) entering path '/home/sontung/stuttgart/robotics-course/bc-proj'
 
 util.cpp:cd_file:1118(3) entering path '../rai-robotModels/baxter' from '/home/sontung/stuttgart/robotics-course/bc-proj'
@@ -182,11 +192,6 @@ util.cpp:getIs:1147(3) opening input file 'paddle_tip.ply'
 
 util.cpp:cd_start:1110(3) entering path '/home/sontung/stuttgart/robotics-course/bc-proj'
 
-graph.cpp:RegistryInitializer:1255(3) opening config file 'rai.cfg'
-graph.cpp:RegistryInitializer:1261(3)  - failed
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-util.tpp:getParameterBase:65(3)          rosNodeName = rai_node [N3rai6StringE] (default!)
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.cpp:cd_start:1110(3) entering path '/home/sontung/stuttgart/robotics-course/bc-proj'
@@ -223,6 +228,7 @@ roscom.h:Subscriber:129(0) subscribing to topic '/robot/end_effector/right_gripp
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 roscom.h:Subscriber:129(0) subscribing to topic '/robot/end_effector/left_gripper/state' <N16baxter_core_msgs17EndEffectorState_ISaIvEEE> into var '/robot/end_effector/left_gripper/state'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.cpp:initCmdLine:679(1) ** cmd line arguments: './x.exe '
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 ../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
@@ -230,31 +236,19 @@ util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 ../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/rgb/image_raw' <N3rai5ArrayIhEE> into var '/camera/rgb/image_raw'
-util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
-../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/camera/depth/image_rect' <N3rai5ArrayIfEE> into var '/camera/depth/image_rect'
+../../rai/RosCom/roscom.h:SubscriberConv:198(0) subscribing to topic '/cameras/right_hand_camera/image' <N3rai5ArrayIhEE> into var '/cameras/right_hand_camera/image'
