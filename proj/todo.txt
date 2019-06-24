@@ -1,4 +1,4 @@
-write code for calibrating threshold values
+rhc analytics is not deterministic
 video understanding, to be integrated into the loop
 refactoring perception code
 cheap ik will make it faster
