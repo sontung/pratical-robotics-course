@@ -228,3 +228,4 @@ roscom.h:Subscriber:129(0) subscribing to topic '/robot/end_effector/right_gripp
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
 roscom.h:Subscriber:129(0) subscribing to topic '/robot/end_effector/left_gripper/state' <N16baxter_core_msgs17EndEffectorState_ISaIvEEE> into var '/robot/end_effector/left_gripper/state'
 util.tpp:getParameterBase:65(3)               useRos =     1 [b] (default!)
+util.cpp:initCmdLine:679(1) ** cmd line arguments: './x.exe '

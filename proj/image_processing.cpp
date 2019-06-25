@@ -106,7 +106,7 @@ void image_processing::remove_outliers(cv::Mat &thresholded_img) {
     }
 }
 
-float image_processing::analyze_right_hand_cam(cv::Mat im, bool show_im) {
+float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, bool show_im) {
 
     // find circle
     cv::Mat im_gray;
@@ -190,6 +190,7 @@ float image_processing::analyze_right_hand_cam(cv::Mat im, bool show_im) {
 
     cv::imwrite("rhc_analyzed.png", im);
     cv::imwrite("rhc_edge.png", dst);
+    visual_im = im.clone();
 
     if (show_im) {
         cv::imshow("noname", im);

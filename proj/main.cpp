@@ -7,10 +7,31 @@
 #include <iostream>
 #include <numeric>
 #include <algorithm>
+#include <pthread.h>
+#include <stdlib.h>
 
 #include "kinematics.h"
 #include "image_processing.h"
 
+cv::Mat RHC;
+cv::Mat FINDING_BALL_TARGET;
+cv::Mat SCENE_ANALYSIS;
+cv::Mat VIDEO_ANALYSIS;
+
+void* show_img_thread(void* im) {
+    int *x_ptr = (int *)im;
+
+    while (1) {
+        if (*x_ptr == 0 && RHC.total() > 0) {
+            cv::imshow("rhc", RHC);
+            cv::waitKey(1);
+        }
+
+//        else if (*x_ptr == 1) printf("showing how to find ball target\n");
+//        else if (*x_ptr == 2) printf("showing scene analysis\n");
+//        else if (*x_ptr == 3) printf("showing video analysis\n");
+    }
+}
 
 void pause_program() {
     cout << "Press to continue"<<endl;
@@ -48,7 +69,8 @@ arr compute_world_coord(int cx, int cy, cv::Mat &depth, rai::KinematicWorld &kin
     return image_coord;
 }
 
-std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr pixel_location) {
+std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr pixel_location,
+                            cv::Mat &visual_im) {
     rai::Frame *cameraFrame = kine_world.getFrameByName("camera");
     std::vector<arr> world_coordinates;
 
@@ -155,6 +177,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr
     world_coordinates.push_back(image_coord);
 
     cv::imwrite("rgb_detected.png", img);
+    visual_im = img.clone();
     printf("\n");
     return world_coordinates;
 }
@@ -267,7 +290,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
 }
 
 arr analyze_scene(rai::KinematicWorld &kine_world,
-                  arr ball_pixel_coord,
+                  arr ball_pixel_coord, cv::Mat &visual_im,
                   bool show_img=false) {
     Var<byteA> _rgb;
     Var<floatA> _depth;
@@ -359,6 +382,7 @@ arr analyze_scene(rai::KinematicWorld &kine_world,
         cv::waitKey(0);
     }
 
+    visual_im = im.clone();
     cv::imwrite("rgb_scene.png", im);
 
     return wc;
@@ -366,9 +390,8 @@ arr analyze_scene(rai::KinematicWorld &kine_world,
 }
 
 // analyze to return which ball moves, 0-red, 1-green
-int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location) {
+int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location, cv::Mat &visual_im) {
     int res = -1;
-
 
     cv::Mat delta;
     cv::Mat delta2;
@@ -436,6 +459,8 @@ int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location
     }
 
     printf("VIDEO ANALYSIS: detect %d\n", res);
+    
+    visual_im = first_frame.clone();
     //cv::imshow("first frame", first_frame);
     //cv::imshow("moving", delta2);
     //cv::imshow("curr frame", curr_frame);
@@ -458,7 +483,7 @@ float grab_right_hand_cam() {
         if (rgb.total() > 0) {
             //return find_circle(rgb);
             cv::imwrite("right_hand_cam.png", rgb);
-            return image_processing::analyze_right_hand_cam(rgb);
+            return image_processing::analyze_right_hand_cam(rgb, RHC, false);
         }
     }
 }
@@ -490,7 +515,7 @@ void calibrate_threshold_values() {
 
 int main(int argc,char **argv){
     bool motion = true;
-    bool testing_trivial = true;
+    bool testing_trivial = false;
 
     // basic setup
     Var<byteA> _rgb;
@@ -504,6 +529,19 @@ int main(int argc,char **argv){
     arr q_current;
     if (!testing_trivial) rai::initCmdLine(argc,argv);
     cout <<"joint names: " <<B.getJointNames() <<endl;
+
+    // threads for visualizing
+    pthread_t rhc_thread, head_finding_ball, scene_analysis, video_analysis;
+    int t0, t1, t2, t3;
+    t0 = 0;
+    t1 = 1;
+    t2 = 2;
+    t3 = 3;
+    int iret1, iret2, iret3, iret4;
+    iret1 = pthread_create( &rhc_thread, nullptr, show_img_thread, &t0);
+    iret2 = pthread_create( &head_finding_ball, nullptr, show_img_thread, &t1);
+    iret3 = pthread_create( &scene_analysis, nullptr, show_img_thread, &t2);
+    iret4 = pthread_create( &video_analysis, nullptr, show_img_thread, &t3);
 
     while (1) {
         if (!testing_trivial) {
@@ -549,7 +587,7 @@ int main(int argc,char **argv){
                 next_frame = CV(_rgb.get()).clone();
                 if (next_frame.total() > 0) break;
             }
-            changed_ball = analyze_video(orig_frame, next_frame, pix);
+            changed_ball = analyze_video(orig_frame, next_frame, pix, VIDEO_ANALYSIS);
             printf("Ball target color = %d\n", changed_ball);
             pause_program();
 
@@ -559,7 +597,7 @@ int main(int argc,char **argv){
             std::vector<arr> targets;
             std::vector<arr> pixel_coords;
             while(1) {
-                if (pix(0) > 0 || pix(1) > 0) res = perception(C, changed_ball, pix);
+                if (pix(0) > 0 || pix(1) > 0) res = perception(C, changed_ball, pix, FINDING_BALL_TARGET);
                 else res = perception(C);
                 if (res.size()>0) break;
             }
@@ -586,14 +624,14 @@ int main(int argc,char **argv){
                 if (abs(distance_to_grippers) > 70) {
                     if (distance_to_grippers > 0) targets[0](1) += 0.007;
                     else if (distance_to_grippers < 0) targets[0](1) -= 0.007;
-                } else if (abs(distance_to_grippers) < 60) {
+                } else if (abs(distance_to_grippers) < 80) {
                     if (distance_to_grippers > 0) targets[0](1) -= 0.007;
                     else if (distance_to_grippers < 0) targets[0](1) += 0.007;
                 }
                 q_current = kinematics::ik_compute(C, B, targets[0], q_home, motion);
                 pause_program_auto();
                 distance_to_grippers = grab_right_hand_cam();
-                if (abs(distance_to_grippers) < 70 && abs(distance_to_grippers) >= 60) break;
+                if (abs(distance_to_grippers) < 80 && abs(distance_to_grippers) >= 70) break;
             }
             print_with_color("calibrating done.");
 
@@ -620,7 +658,7 @@ int main(int argc,char **argv){
 
             // go to target bin
             cout<<"now go to target bin"<<endl;
-            arr bin_target = analyze_scene(C, pixel_coords[0]);
+            arr bin_target = analyze_scene(C, pixel_coords[0], SCENE_ANALYSIS);
             bin_target(2) += 0.15;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
@@ -640,27 +678,14 @@ int main(int argc,char **argv){
 
         }
         else {
-            while (1) {
-                int changed_ball = 1;
-                arr pix = {0, 0};
-                printf("Ready\n");
-                cv::Mat orig_frame = CV(_rgb.get()).clone();
-                while (1) {
-                    orig_frame = CV(_rgb.get()).clone();
-                    if (orig_frame.total() > 0) break;
-                }
-                printf("Change balls\n");
-                pause_program();
-                cv::Mat next_frame = CV(_rgb.get()).clone();
-                while (1) {
-                    next_frame = CV(_rgb.get()).clone();
-                    if (next_frame.total() > 0) break;
-                }
-                changed_ball = analyze_video(orig_frame, next_frame, pix);
-                printf("Ball target color = %d\n", changed_ball);
-            }
 
         }
     }
+
+    pthread_join(rhc_thread, nullptr);
+    pthread_join(head_finding_ball, nullptr);
+    pthread_join(scene_analysis, nullptr);
+    pthread_join(video_analysis, nullptr);
+
     return 0;
 }
