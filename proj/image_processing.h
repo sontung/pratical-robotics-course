@@ -1,6 +1,7 @@
 #ifndef IMAGE_PROCESSING_H
 #define IMAGE_PROCESSING_H
 #include <Perception/opencv.h> //always include this first!
+#include <random>
 
 
 class image_processing
@@ -14,7 +15,7 @@ public:
     static float analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, bool show_im);
     static std::vector<cv::Mat> find_square_contours(cv::Mat &im);
     static bool count_balls_for_each_square(cv::Mat &im, int ball_col,
-                                            arr &start_sq, arr &dest_sq);
+                                            arr &start_sq, arr &dest_sq, arr &dest_location);
     static void remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Mat> &contours);
 
 private:

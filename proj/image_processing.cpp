@@ -59,7 +59,7 @@ double image_processing::find_circle(cv::Mat img) {
 
     std::vector<cv::Mat> contours;
     findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
     drawContours(img, contours, -1, color);
 
     printf(" detected %d objects\n", contours.size());
@@ -162,7 +162,7 @@ float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, b
     std::sort(interested_contours.begin(), interested_contours.end(), less_than_key());
 
     // draw contours
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
     drawContours(im, contours, -1, color);
     cv::Moments m = cv::moments(interested_contours[0]);
     int cX = int(m.m10 / m.m00);
@@ -267,7 +267,7 @@ std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
     };
     std::sort(square_contours.begin(), square_contours.end(), less_than_key2());
 
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
     drawContours(im, square_contours, -1, color);
 
     return square_contours;
@@ -372,7 +372,8 @@ void image_processing::count_balls_helper(std::vector<cv::Mat> &balls,
     }
 }
 
-bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col, arr &start_sq, arr &dest_sq) {
+bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
+                                                   arr &start_sq, arr &dest_sq, arr &dest_location) {
     cv::Mat orig_im = im.clone();
     std::vector<cv::Mat> squares = find_square_contours(im);
     std::vector<int> squares_center;
@@ -428,13 +429,27 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col, ar
     // determine from and to sq
     int from_idx = closet_square(start_sq, squares);
     int to_idx = closet_square(dest_sq, squares);
+
+    std::random_device rd;
+    std::mt19937 eng(rd());
+    std::uniform_int_distribution<> mag(15, 25);
+    std::uniform_int_distribution<> sign(0, 1);
+
+    int dx = mag(eng)*(int(sign(eng) == 1)*2-1);
+    int dy = mag(eng)*(int(sign(eng) == 1)*2-1);
+    dest_location(0) = squares_center[to_idx*2] + dx;
+    dest_location(1) = squares_center[to_idx*2+1] + dy;
+    printf("rand devitation %d %d\n", dx, dy);
+
     printf("Ball moved from sq %d to sq %d\n", from_idx, to_idx);
-    cv::imshow("counting", im);
-    cv::waitKey(1);
+    if (from_idx == to_idx) {
+        printf("Command not feasible\n");
+        return false;
+    }
     if (ball_col == 0 && red_balls_stock[from_idx] > 0) {
         printf("Command feasible\n");
-        return true;}
-
+        return true;
+    }
     else if (ball_col == 1 && green_balls_stock[from_idx] > 0) {
         printf("Command feasible\n");
         return true;

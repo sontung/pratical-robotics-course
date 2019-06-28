@@ -1,7 +1,6 @@
-locate squares and count balls on squares (ball moves from sq X to sq Y)
-define bahaviours when cant replicate action
-extend to 3 squares
+
 test counting more (make it less fragile)
-dont change color when visualizing
-better bin target
+
+make it less human involved
+smarter drop and pick (less interfere with other balls)
 

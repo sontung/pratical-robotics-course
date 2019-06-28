@@ -129,7 +129,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr
 
     std::vector<cv::Mat> contours;
     findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
     drawContours(img, contours, -1, color);
 
     printf("detected %d balls of color %d\n", contours.size(), ball_color);
@@ -240,7 +240,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
 
     std::vector<cv::Mat> contours;
     findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
     drawContours(img, contours, -1, color);
 
     printf("detected %d objects\n", contours.size());
@@ -312,12 +312,12 @@ arr analyze_scene(rai::KinematicWorld &kine_world, arr dest_pix,
         depth_map = CV(_depth.get()).clone();
         if (im.total() > 0 && depth_map.total() > 0) break;
     }
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
 
 
 
     cv::Point p = cv::Point(dest_pix(0), dest_pix(1));
-    cv::Scalar color_center( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color_center( 130, 150, 180 );
     cv::drawMarker(im, p, color_center, 16, 3, 8);
     arr wc = compute_world_coord(dest_pix(0), dest_pix(1), depth_map, kine_world);
 
@@ -363,7 +363,7 @@ int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &from, arr &to,
     std::vector<cv::Mat> big_contours;
 
     findContours(delta2, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    cv::Scalar color( 140, 150, 160 );
     for (uint u=0; u<contours.size(); u++) {
         double area = cv::contourArea(contours[u]);
         if (area > 100) big_contours.push_back(contours[u]);
@@ -460,11 +460,11 @@ int main(int argc,char **argv){
     t1 = 1;
     t2 = 2;
     t3 = 3;
-    int iret1, iret2, iret3, iret4;
-    iret1 = pthread_create( &rhc_thread, nullptr, show_img_thread, &t0);
-    iret2 = pthread_create( &head_finding_ball, nullptr, show_img_thread, &t1);
-    iret3 = pthread_create( &scene_analysis, nullptr, show_img_thread, &t2);
-    iret4 = pthread_create( &video_analysis, nullptr, show_img_thread, &t3);
+//    int iret1, iret2, iret3, iret4;
+//    iret1 = pthread_create( &rhc_thread, nullptr, show_img_thread, &t0);
+//    iret2 = pthread_create( &head_finding_ball, nullptr, show_img_thread, &t1);
+//    iret3 = pthread_create( &scene_analysis, nullptr, show_img_thread, &t2);
+//    iret4 = pthread_create( &video_analysis, nullptr, show_img_thread, &t3);
 
     while (1) {
         if (!testing_trivial) {
@@ -498,6 +498,7 @@ int main(int argc,char **argv){
             int changed_ball = 1;
             arr pixF = {0, 0};
             arr pixT = {0, 0};
+            arr pixBin = {0, 0};
 
             printf("Ready\n");
             cv::Mat orig_frame = CV(_rgb.get()).clone();
@@ -514,7 +515,7 @@ int main(int argc,char **argv){
             }
             changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS);
             printf("Ball target color = %d\n", changed_ball);
-            bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT);
+            bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT, pixBin);
             if (!good) continue;
             pause_program();
 
@@ -585,11 +586,11 @@ int main(int argc,char **argv){
             // go to target bin
             cout<<"now go to target bin"<<endl;
 
-            arr bin_target = analyze_scene(C, pixT, pixel_coords[0], SCENE_ANALYSIS);
+            arr bin_target = analyze_scene(C, pixBin, pixel_coords[0], SCENE_ANALYSIS);
             bin_target(2) += 0.15;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
-            bin_target(2) = 0.83;
+            bin_target(2) = 0.81;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
 
@@ -609,6 +610,7 @@ int main(int argc,char **argv){
                 int changed_ball = 1;
                 arr pixF = {0, 0};
                 arr pixT = {0, 0};
+                arr pixBin = {0, 0};
 
                 printf("Ready\n");
                 cv::Mat orig_frame = CV(_rgb.get()).clone();
@@ -626,16 +628,16 @@ int main(int argc,char **argv){
                 changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS);
                 printf("Ball target color = %d at %f %f\n", changed_ball, pixT(0), pixT(1));
 
-                bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT);
+                bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT, pixBin);
 
             }
         }
     }
 
-    pthread_join(rhc_thread, nullptr);
-    pthread_join(head_finding_ball, nullptr);
-    pthread_join(scene_analysis, nullptr);
-    pthread_join(video_analysis, nullptr);
+//    pthread_join(rhc_thread, nullptr);
+//    pthread_join(head_finding_ball, nullptr);
+//    pthread_join(scene_analysis, nullptr);
+//    pthread_join(video_analysis, nullptr);
 
     return 0;
 }
