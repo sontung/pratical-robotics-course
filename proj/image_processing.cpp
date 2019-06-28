@@ -229,23 +229,68 @@ std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
         double t = 0.01;
         cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
 
-        printf("SQUARE ANALYSIS: %f, %d\n", t, vertices.size().height);
         while (vertices.size().height > 4) {
             t += 0.001;
             cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
         }
-        printf("SQUARE ANALYSIS: %f, %d\n", t, vertices.size().height);
-        printf("SQUARE ANALYSIS: done\n\n");
         big_contours[u] = vertices;
     }
 
-    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
-    drawContours(im, big_contours, -1, color);
+    // return 2 largest squares
+    struct less_than_key
+    {
+        inline bool operator() (const cv::Mat& struct1, const cv::Mat& struct2)
+        {
+            double a1 = cv::contourArea(struct1);
+            double a2 = cv::contourArea(struct2);
+            return a1 > a2;
+        }
+    };
+    std::sort(big_contours.begin(), big_contours.end(), less_than_key());
 
-    return big_contours;
+    // sort by x coord
+    std::vector<cv::Mat> square_contours;
+    square_contours.push_back(big_contours[0]);
+    square_contours.push_back(big_contours[1]);
+    square_contours.push_back(big_contours[2]);
+
+    struct less_than_key2
+    {
+        inline bool operator() (const cv::Mat& struct1, const cv::Mat& struct2)
+        {
+            cv::Moments m2 = cv::moments(struct1);
+            int sX2 = int(m2.m10 / m2.m00);
+            cv::Moments m3 = cv::moments(struct2);
+            int sX3 = int(m3.m10 / m3.m00);
+            return sX2 < sX3;
+        }
+    };
+    std::sort(square_contours.begin(), square_contours.end(), less_than_key2());
+
+    cv::Scalar color( rand()&255, rand()&255, rand()&255 );
+    drawContours(im, square_contours, -1, color);
+
+    return square_contours;
 }
 
 void image_processing::remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Mat> &contours) {
+    // find arc length
+    double longest_arc = 0.0;
+    for (uint u = 0; u < contours.size(); u++) {
+        double arc = cv::arcLength(contours[u], true);
+        if (arc > longest_arc) longest_arc = arc;
+    }
+    longest_arc /= 4.0;
+    double distance_to_check_if_inside_square = sqrt(2.0*pow(longest_arc, 2))/2.0;
+    std::vector<int> squares_center;
+    for (uint v=0; v < contours.size(); v++) {
+        cv::Moments m2 = cv::moments(contours[v]);
+        int sX = int(m2.m10 / m2.m00);
+        int sY = int(m2.m01 / m2.m00);
+        squares_center.push_back(sX);
+        squares_center.push_back(sY);
+    }
+
     int rows = thresholded_img.rows;
     int cols = thresholded_img.cols;
     std::vector<std::vector<int>> points_inside_contours;
@@ -253,8 +298,10 @@ void image_processing::remove_points_outside_contours(cv::Mat &thresholded_img, 
         for (int j=0;j<cols;j++) {
             if (thresholded_img.at<uchar>(i, j) > 0) {
                 for (uint u=0;u<contours.size();u++) {
-                    double d = cv::pointPolygonTest(contours[u], cv::Point(j, i), true);
-                    if (d >= 0) {
+                    int sX = squares_center[u*2];
+                    int sY = squares_center[u*2+1];
+                    double d = sqrt(pow(j-sX, 2) + pow(i-sY, 2));
+                    if (d <= distance_to_check_if_inside_square) {
                         std::vector<int> valid = {i, j};
                         points_inside_contours.push_back(valid);
                     }
@@ -269,4 +316,147 @@ void image_processing::remove_points_outside_contours(cv::Mat &thresholded_img, 
         int j = points_inside_contours[u][1];
         thresholded_img.at<uchar>(i, j) = 255;
     }
+}
+
+std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) {
+    cv::Mat hsv_img;
+    cv::Mat green_img;
+    cv::Mat red_img;
+    cv::cvtColor(img, hsv_img, cv::COLOR_BGR2HSV);
+
+    // thresholding
+    cv::inRange(hsv_img, cv::Scalar(35, 100, 100), cv::Scalar(55, 255, 255), green_img);
+    cv::inRange(hsv_img, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), red_img);
+
+    // fill up holes inside thresholded region
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::dilate(red_img, red_img, element);
+    cv::dilate(green_img, green_img, element);
+
+    // return contours
+    std::vector<cv::Mat> contours;
+    if (ball_color == 0) findContours(red_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    else if (ball_color == 1 ) findContours(green_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+
+    // remove smalle contours
+    std::vector<cv::Mat> big_contours;
+    for (uint u=0; u<contours.size(); u++) {
+        double area = cv::contourArea(contours[u]);
+        if (area > 50) big_contours.push_back(contours[u]);
+    }
+    cv::Scalar color( 100, 100, 0 );
+    drawContours(img, big_contours, -1, color);
+
+    return big_contours;
+
+}
+
+void image_processing::count_balls_helper(std::vector<cv::Mat> &balls,
+                                          std::vector<cv::Mat> &balls_on_square,
+                                          std::vector<int> &square_cen,
+                                          std::vector<int> &stock,
+                                          double thresh_distance, unsigned long how_many_squares) {
+    for (uint u=0; u < balls.size(); u++) {
+        cv::Moments m = cv::moments(balls[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        for (uint v=0; v < how_many_squares; v++) {
+            int sX = square_cen[v*2];
+            int sY = square_cen[v*2+1];
+            double d = sqrt(pow(cX-sX, 2) + pow(cY-sY, 2));
+            if (d <= thresh_distance) {
+                balls_on_square.push_back(balls[u]);
+                stock[v] += 1;
+            }
+        }
+    }
+}
+
+bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col, arr &start_sq, arr &dest_sq) {
+    cv::Mat orig_im = im.clone();
+    std::vector<cv::Mat> squares = find_square_contours(im);
+    std::vector<int> squares_center;
+    for (uint v=0; v < squares.size(); v++) {
+        cv::Moments m2 = cv::moments(squares[v]);
+        int sX = int(m2.m10 / m2.m00);
+        int sY = int(m2.m01 / m2.m00);
+        squares_center.push_back(sX);
+        squares_center.push_back(sY);
+    }
+    std::vector<cv::Mat> red_balls = find_circle(orig_im, 0);
+    std::vector<cv::Mat> red_balls_on_squares;
+    std::vector<int> red_balls_stock = {0, 0, 0};
+    std::vector<cv::Mat> green_balls = find_circle(orig_im, 1);
+    std::vector<cv::Mat> green_balls_on_squares;
+    std::vector<int> green_balls_stock = {0, 0, 0};
+
+    // find arc length
+    double longest_arc = 0.0;
+    for (uint u = 0; u < squares.size(); u++) {
+        double arc = cv::arcLength(squares[u], true);
+        if (arc > longest_arc) longest_arc = arc;
+    }
+    longest_arc /= 4.0;
+    double distance_to_check_if_inside_square = sqrt(2.0*pow(longest_arc, 2))/2.0;
+
+    // remove ball contours not on any square
+    count_balls_helper(red_balls, red_balls_on_squares, squares_center,
+                       red_balls_stock,
+                       distance_to_check_if_inside_square, squares.size());
+    count_balls_helper(green_balls, green_balls_on_squares, squares_center,
+                       green_balls_stock,
+                       distance_to_check_if_inside_square, squares.size());
+
+    cv::Scalar color( 100, 100, 0 );
+    drawContours(im, red_balls_on_squares, -1, color);
+    drawContours(im, green_balls_on_squares, -1, color);
+    printf("reds: %d, green: %d\n", red_balls_on_squares.size(), green_balls_on_squares.size());
+    printf("reds %d %d %d, green %d %d %d\n", red_balls_stock[0], red_balls_stock[1],
+            red_balls_stock[2], green_balls_stock[0], green_balls_stock[1], green_balls_stock[2]);
+
+    // text
+    for (uint v=0; v < squares.size(); v++) {
+        int sX = squares_center[v*2];
+        int sY = squares_center[v*2+1];
+        cv::putText(im, std::to_string(v), cv::Point(sX-50, sY-50), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, std::to_string(green_balls_stock[v]), cv::Point(sX-30, sY-30), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, std::to_string(red_balls_stock[v]), cv::Point(sX-40, sY-40), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+    }
+    cv::Point mark3 = cv::Point((int)dest_sq(0), (int)dest_sq(1));
+    cv::drawMarker(im, mark3, cv::Scalar(0, 100, 100), 16, 3, 8);
+
+    // determine from and to sq
+    int from_idx = closet_square(start_sq, squares);
+    int to_idx = closet_square(dest_sq, squares);
+    printf("Ball moved from sq %d to sq %d\n", from_idx, to_idx);
+    cv::imshow("counting", im);
+    cv::waitKey(1);
+    if (ball_col == 0 && red_balls_stock[from_idx] > 0) {
+        printf("Command feasible\n");
+        return true;}
+
+    else if (ball_col == 1 && green_balls_stock[from_idx] > 0) {
+        printf("Command feasible\n");
+        return true;
+    }
+    else {
+        printf("Command not feasible\n");
+        return false;
+    }
+}
+
+int image_processing::closet_square(arr pix, std::vector<cv::Mat> sqs) {
+    int closest_distance = -1;
+    int res = -1;
+    for (uint u=0;u<sqs.size();u++) {
+        cv::Moments m = cv::moments(sqs[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        int d = pow(pix(0)-cX, 2) + pow(pix(1)-cY, 2);
+        if (closest_distance < 0 || d < closest_distance) {
+            closest_distance = d;
+            res = u;
+        }
+    }
+    return res;
 }

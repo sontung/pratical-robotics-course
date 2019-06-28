@@ -1,5 +1,7 @@
-rhc analytics is not deterministic
-video understanding, to be integrated into the loop
-refactoring perception code
-cheap ik will make it faster
-threaded to visualize images
+locate squares and count balls on squares (ball moves from sq X to sq Y)
+define bahaviours when cant replicate action
+extend to 3 squares
+test counting more (make it less fragile)
+dont change color when visualizing
+better bin target
+

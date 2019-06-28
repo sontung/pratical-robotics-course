@@ -13,10 +13,10 @@
 #include "kinematics.h"
 #include "image_processing.h"
 
-cv::Mat RHC;
-cv::Mat FINDING_BALL_TARGET;
-cv::Mat SCENE_ANALYSIS;
-cv::Mat VIDEO_ANALYSIS;
+static cv::Mat RHC;
+static cv::Mat FINDING_BALL_TARGET;
+static cv::Mat SCENE_ANALYSIS;
+static cv::Mat VIDEO_ANALYSIS;
 
 void* show_img_thread(void* im) {
     int *x_ptr = (int *)im;
@@ -26,10 +26,18 @@ void* show_img_thread(void* im) {
             cv::imshow("rhc", RHC);
             cv::waitKey(1);
         }
-
-//        else if (*x_ptr == 1) printf("showing how to find ball target\n");
-//        else if (*x_ptr == 2) printf("showing scene analysis\n");
-//        else if (*x_ptr == 3) printf("showing video analysis\n");
+        else if (*x_ptr == 1 && FINDING_BALL_TARGET.total() > 0) {
+            cv::imshow("finding balls", FINDING_BALL_TARGET);
+            cv::waitKey(1);
+        }
+        else if (*x_ptr == 2 && SCENE_ANALYSIS.total() > 0) {
+            cv::imshow("analyzing scene", SCENE_ANALYSIS);
+            cv::waitKey(1);
+        }
+        else if (*x_ptr == 3 && VIDEO_ANALYSIS.total() > 0) {
+            cv::imshow("analyzing video", VIDEO_ANALYSIS);
+            cv::waitKey(1);
+        }
     }
 }
 
@@ -289,108 +297,43 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
     return world_coordinates;
 }
 
-arr analyze_scene(rai::KinematicWorld &kine_world,
+arr analyze_scene(rai::KinematicWorld &kine_world, arr dest_pix,
                   arr ball_pixel_coord, cv::Mat &visual_im,
                   bool show_img=false) {
     Var<byteA> _rgb;
     Var<floatA> _depth;
     RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
     _depth.waitForNextRevision();
-    cv::Mat im = CV(_rgb.get()).clone();
-    cv::Mat depth_map = CV(_depth.get()).clone();
+    cv::Mat im;
+    cv::Mat depth_map;
 
-    // thresholded
-    cv::Mat im_blurred;
-    cv::Mat hsv_im;
-    cv::Mat thresholded_img;
-    cv::blur(im, im_blurred, cv::Size(3, 3));
-    cv::cvtColor(im_blurred, hsv_im, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv_im, cv::Scalar(40, 100, 100), cv::Scalar(70, 255, 255), thresholded_img);//green
-    cv::inRange(hsv_im, cv::Scalar(20, 100, 100), cv::Scalar(30, 255, 255), thresholded_img);//yellow
-    image_processing::remove_outliers(thresholded_img);
-
-    // contour detection
-    std::vector<cv::Mat> contours;
-    findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    while (1) {
+        im = CV(_rgb.get()).clone();
+        depth_map = CV(_depth.get()).clone();
+        if (im.total() > 0 && depth_map.total() > 0) break;
+    }
     cv::Scalar color( rand()&255, rand()&255, rand()&255 );
 
-    // remove small contours
-    std::vector<cv::Mat> big_contours;
-    for (uint u=0;u<contours.size();u++) {
-        double area = cv::contourArea(contours[u]);
-        if (area>10) big_contours.push_back(contours[u]);
-    }
 
-    // approximate contours
-    for (uint u=0;u<big_contours.size();u++) {
-        double area = cv::contourArea(big_contours[u]);
-        double peri = cv::arcLength(big_contours[u], true);
-        cv::Mat vertices;
-        cv::approxPolyDP(big_contours[u], vertices, 0.04*peri, true);
-        printf("SCENE ANALYSIS: area %f has old size=(%d, %d), new size=(%d, %d)\n", area,
-               big_contours[u].size().width, big_contours[u].size().height,
-               vertices.size().width, vertices.size().height);
-        big_contours[u] = vertices;
-    }
 
-    // determine target square center
-    double biggest_distance = -1.0;
-    uint idx = 0;
-    double avg_area = 0.0;
-    for (uint u=0;u<big_contours.size();u++) {
-        double area = cv::contourArea(big_contours[u]);
-        avg_area += area;
-    }
-    avg_area /= big_contours.size();
-    for (uint u=0;u<big_contours.size();u++) {
-        double area = cv::contourArea(big_contours[u]);
-        cv::Moments m = cv::moments(big_contours[u]);
-        int cX = int(m.m10 / m.m00);
-        int cY = int(m.m01 / m.m00);
-        double distance_to_ball_target = pow(cX-ball_pixel_coord(0), 2) + pow(cY-ball_pixel_coord(1), 2);
-        if (distance_to_ball_target > biggest_distance && area > avg_area/2.0) {
-            biggest_distance = distance_to_ball_target;
-            idx = u;
-        }
-    }
-
-    // determine target square center world coord
-    cv::Moments m = cv::moments(big_contours[idx]);
-    int cX = int(m.m10 / m.m00);
-    int cY = int(m.m01 / m.m00);
-    cv::Point p = cv::Point(cX, cY);
+    cv::Point p = cv::Point(dest_pix(0), dest_pix(1));
     cv::Scalar color_center( rand()&255, rand()&255, rand()&255 );
     cv::drawMarker(im, p, color_center, 16, 3, 8);
-    arr wc = compute_world_coord(cX, cY, depth_map, kine_world);
+    arr wc = compute_world_coord(dest_pix(0), dest_pix(1), depth_map, kine_world);
 
     // mark ball
     p = cv::Point(ball_pixel_coord(0), ball_pixel_coord(1));
     cv::drawMarker(im, p, color, 16, 3, 8);
 
-    drawContours(im, big_contours, -1, color);
-
-    // documenting abnormal behaviours
-    if (big_contours.size() > 2) {
-        printf("SCENE ANALYSIS: abnormal situation, documenting...\n");
-        cv::imwrite("abnormal_scene_analysis.png", im);
-    }
-
-    if (show_img) {
-        cv::imshow("image", im);
-        cv::imshow("blur", im_blurred);
-        cv::imshow("threshold", thresholded_img);
-        cv::waitKey(0);
-    }
 
     visual_im = im.clone();
-    cv::imwrite("rgb_scene.png", im);
 
     return wc;
 
 }
 
 // analyze to return which ball moves, 0-red, 1-green
-int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location, cv::Mat &visual_im) {
+int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &from, arr &to, cv::Mat &visual_im) {
     int res = -1;
 
     cv::Mat delta;
@@ -445,12 +388,15 @@ int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location
             int cY = int(m.m01 / m.m00);
             if (green_img.at<uchar>(cY, cX) > 0) {
                 res = 1;
-                pixel_location(0) = cX;
-                pixel_location(1) = cY;
+                to(0) = cX;
+                to(1) = cY;
             } else if (red_img.at<uchar>(cY, cX) > 0) {
                 res = 0;
-                pixel_location(0) = cX;
-                pixel_location(1) = cY;
+                to(0) = cX;
+                to(1) = cY;
+            } else {
+                from(0) = cX;
+                from(1) = cY;
             }
             cv::Point mark3 = cv::Point(cX, cY);
             cv::drawMarker(curr_frame, mark3, cv::Scalar(0, 100, 100), 16, 3, 8);
@@ -459,15 +405,17 @@ int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &pixel_location
     }
 
     printf("VIDEO ANALYSIS: detect %d\n", res);
-    
-    visual_im = first_frame.clone();
-    //cv::imshow("first frame", first_frame);
-    //cv::imshow("moving", delta2);
-    //cv::imshow("curr frame", curr_frame);
-    //cv::imshow("green", green_img);
-    //cv::imshow("red", red_img);
-    //cv::waitKey(0);
 
+    visual_im = first_frame.clone();
+    if (res == -1) {
+        printf("VIDEO ANALYSIS: documenting failures\n");
+        cv::imwrite("firstframe_fail.png", first_frame);
+        cv::imwrite("moving_fail.png", delta2);
+        cv::imwrite("curr_frame_fail.png", curr_frame);
+        cv::imwrite("green_fail.png", green_img);
+        cv::imwrite("red_fail.png", red_img);
+    }
+    cv::imwrite("curr_frame_fail.png", curr_frame);
     return res;
 }
 
@@ -484,31 +432,6 @@ float grab_right_hand_cam() {
             //return find_circle(rgb);
             cv::imwrite("right_hand_cam.png", rgb);
             return image_processing::analyze_right_hand_cam(rgb, RHC, false);
-        }
-    }
-}
-
-void calibrate_threshold_values() {
-    Var<byteA> _rgb;
-    Var<floatA> _depth;
-    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
-    _depth.waitForNextRevision();
-    while (1) {
-
-        cv::Mat im = CV(_rgb.get()).clone();
-        cv::Mat hsv;
-        cv::Mat thresholded;
-        if (im.total() > 0) {
-            cv::cvtColor(im, hsv, cv::COLOR_BGR2HSV);
-
-            cv::inRange(hsv, cv::Scalar(17, 100, 100), cv::Scalar(37, 255, 255), thresholded);//yellow
-            cv::inRange(hsv, cv::Scalar(93, 100, 100), cv::Scalar(113, 255, 255), thresholded);//blue
-            cv::inRange(hsv, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), thresholded);//red
-            //cv::inRange(hsv, cv::Scalar(35, 100, 100), cv::Scalar(55, 255, 255), thresholded);//green
-
-            cv::imshow("orig", im);
-            cv::imshow("thresholded", thresholded);
-            cv::waitKey(1);
         }
     }
 }
@@ -573,7 +496,9 @@ int main(int argc,char **argv){
 
             // asking to change balls
             int changed_ball = 1;
-            arr pix = {0, 0};
+            arr pixF = {0, 0};
+            arr pixT = {0, 0};
+
             printf("Ready\n");
             cv::Mat orig_frame = CV(_rgb.get()).clone();
             while (1) {
@@ -587,8 +512,10 @@ int main(int argc,char **argv){
                 next_frame = CV(_rgb.get()).clone();
                 if (next_frame.total() > 0) break;
             }
-            changed_ball = analyze_video(orig_frame, next_frame, pix, VIDEO_ANALYSIS);
+            changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS);
             printf("Ball target color = %d\n", changed_ball);
+            bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT);
+            if (!good) continue;
             pause_program();
 
             // perceiving target point
@@ -597,8 +524,7 @@ int main(int argc,char **argv){
             std::vector<arr> targets;
             std::vector<arr> pixel_coords;
             while(1) {
-                if (pix(0) > 0 || pix(1) > 0) res = perception(C, changed_ball, pix, FINDING_BALL_TARGET);
-                else res = perception(C);
+                if (pixF(0) > 0 || pixF(1) > 0) res = perception(C, changed_ball, pixF, FINDING_BALL_TARGET);
                 if (res.size()>0) break;
             }
             for (uint i=0;i<res.size();i++) {
@@ -658,7 +584,8 @@ int main(int argc,char **argv){
 
             // go to target bin
             cout<<"now go to target bin"<<endl;
-            arr bin_target = analyze_scene(C, pixel_coords[0], SCENE_ANALYSIS);
+
+            arr bin_target = analyze_scene(C, pixT, pixel_coords[0], SCENE_ANALYSIS);
             bin_target(2) += 0.15;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
@@ -678,7 +605,30 @@ int main(int argc,char **argv){
 
         }
         else {
+            while (1) {
+                int changed_ball = 1;
+                arr pixF = {0, 0};
+                arr pixT = {0, 0};
 
+                printf("Ready\n");
+                cv::Mat orig_frame = CV(_rgb.get()).clone();
+                while (1) {
+                    orig_frame = CV(_rgb.get()).clone();
+                    if (orig_frame.total() > 0) break;
+                }
+                printf("Change balls\n");
+                pause_program();
+                cv::Mat next_frame = CV(_rgb.get()).clone();
+                while (1) {
+                    next_frame = CV(_rgb.get()).clone();
+                    if (next_frame.total() > 0) break;
+                }
+                changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS);
+                printf("Ball target color = %d at %f %f\n", changed_ball, pixT(0), pixT(1));
+
+                bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT);
+
+            }
         }
     }
 

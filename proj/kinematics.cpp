@@ -113,7 +113,7 @@ arr kinematics::ik_compute_with_grabbing(rai::KinematicWorld &kine_world, RobotO
     objectFrame->setColor({.8, .8, .1});
     objectFrame->setPosition(target_position);
 
-    double tolerate=0.0001;
+    double tolerate=0.01;
     double time=4.0;
 
     // tracking IK
@@ -127,7 +127,7 @@ arr kinematics::ik_compute_with_grabbing(rai::KinematicWorld &kine_world, RobotO
 
 
     int i = 0;
-    while(i < 1000) {
+    while(i < 200) {
         Phi.clear();
         PhiJ.clear();
 

@@ -3,7 +3,6 @@ buid.sh
 image_processing.cpp
 image_processing.cpp
 image_processing.h
-kine.cpp
 kinematics.cpp
 kinematics.h
 main.cpp
