@@ -3,4 +3,6 @@ test counting more (make it less fragile)
 
 make it less human involved
 smarter drop and pick (less interfere with other balls)
+ - always aligned direction
+ - choose position not overlapping with existing balls
 

@@ -4,6 +4,7 @@ image_processing::image_processing()
 {
 }
 
+// denoise
 bool image_processing::check_neighbor(cv::Mat &img, int kernel_size, int x, int y) {
     bool res = true;
     int step = 0;
@@ -27,6 +28,7 @@ bool image_processing::check_neighbor(cv::Mat &img, int kernel_size, int x, int 
     return res;
 }
 
+// find circle by thresholding green pixels
 double image_processing::find_circle(cv::Mat img) {
     cv::Mat img2;
     cv::Mat hsv_image2;
@@ -87,6 +89,7 @@ double image_processing::find_circle(cv::Mat img) {
     return area;
 }
 
+// denoise a binary image by removing white pixels that doesn't have many nearby white neighbors
 void image_processing::remove_outliers(cv::Mat &thresholded_img) {
     int rows = thresholded_img.rows;
     int cols = thresholded_img.cols;
@@ -106,6 +109,7 @@ void image_processing::remove_outliers(cv::Mat &thresholded_img) {
     }
 }
 
+// analyze RHC to figure how much a ball target is deviated from the gripper
 float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, bool show_im) {
 
     // find circle
@@ -201,6 +205,7 @@ float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, b
 
 }
 
+// find all sq contours by thresholding yellow pixels
 std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
     // thresholded
     cv::Mat im_blurred;
@@ -273,6 +278,8 @@ std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
     return square_contours;
 }
 
+// remove all white pixels that are not inside any contours (assume square contours) by comparing distance from
+// pixel to contour center with diagonal line of that contour
 void image_processing::remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Mat> &contours) {
     // find arc length
     double longest_arc = 0.0;
@@ -318,6 +325,7 @@ void image_processing::remove_points_outside_contours(cv::Mat &thresholded_img, 
     }
 }
 
+// find circle by thresholding a color
 std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) {
     cv::Mat hsv_img;
     cv::Mat green_img;
@@ -351,6 +359,7 @@ std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) 
 
 }
 
+// find out how many balls of a color are in squares
 void image_processing::count_balls_helper(std::vector<cv::Mat> &balls,
                                           std::vector<cv::Mat> &balls_on_square,
                                           std::vector<int> &square_cen,
@@ -372,6 +381,46 @@ void image_processing::count_balls_helper(std::vector<cv::Mat> &balls,
     }
 }
 
+// validate if a position is too close to any bal
+bool validate(std::vector<cv::Mat> &gballs, std::vector<cv::Mat> &rballs,
+              int sq_center_x, int sq_center_y,
+              double thresh_distance, double edge_length, arr &dest) {
+    std::vector<cv::Mat> valid_balls;
+    for (uint u=0; u < gballs.size(); u++) {
+        cv::Moments m = cv::moments(gballs[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        double d = sqrt(pow(cX-sq_center_x, 2) + pow(cY-sq_center_y, 2));
+        if (d <= thresh_distance) {
+            valid_balls.push_back(gballs[u]);
+        }
+    }
+
+    for (uint u=0; u < rballs.size(); u++) {
+        cv::Moments m = cv::moments(rballs[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        double d = sqrt(pow(cX-sq_center_x, 2) + pow(cY-sq_center_y, 2));
+        if (d <= thresh_distance) {
+            valid_balls.push_back(rballs[u]);
+        }
+    }
+
+    bool res = true;
+    for (uint u=0; u < valid_balls.size(); u++) {
+        cv::Moments m = cv::moments(valid_balls[u]);
+        int cX = int(m.m10 / m.m00);
+        int cY = int(m.m01 / m.m00);
+        double d = sqrt(pow(cX-dest(0), 2) + pow(cY-dest(1), 2));
+        if (d < edge_length/5.0) {
+            res = false;
+            break;
+        }
+    }
+    return res;
+}
+
+// analyze if a motion can be performed by analyzing available balls in the start square
 bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
                                                    arr &start_sq, arr &dest_sq, arr &dest_location) {
     cv::Mat orig_im = im.clone();
@@ -400,7 +449,7 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
     longest_arc /= 4.0;
     double distance_to_check_if_inside_square = sqrt(2.0*pow(longest_arc, 2))/2.0;
 
-    // remove ball contours not on any square
+    // remove ball contours not on any square for denoise
     count_balls_helper(red_balls, red_balls_on_squares, squares_center,
                        red_balls_stock,
                        distance_to_check_if_inside_square, squares.size());
@@ -432,18 +481,24 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
 
     std::random_device rd;
     std::mt19937 eng(rd());
-    std::uniform_int_distribution<> mag(15, 25);
-    std::uniform_int_distribution<> sign(0, 1);
+    std::uniform_int_distribution<> mag(int(-longest_arc/2), int(longest_arc/2));
 
-    int dx = mag(eng)*(int(sign(eng) == 1)*2-1);
-    int dy = mag(eng)*(int(sign(eng) == 1)*2-1);
-    dest_location(0) = squares_center[to_idx*2] + dx;
-    dest_location(1) = squares_center[to_idx*2+1] + dy;
-    printf("rand devitation %d %d\n", dx, dy);
+    // add random to destination ball drop
+    while (1) {
+        int dx = mag(eng);
+        int dy = mag(eng);
+        dest_location(0) = squares_center[to_idx*2] + dx;
+        dest_location(1) = squares_center[to_idx*2+1] + dy;
+        if (validate(red_balls_on_squares, green_balls_on_squares, squares_center[to_idx*2], squares_center[to_idx*2+1],
+                     distance_to_check_if_inside_square, longest_arc, dest_location)) {
+            printf("rand devitation %d %d\n", dx, dy);
+            break;
+        }
+    }
 
     printf("Ball moved from sq %d to sq %d\n", from_idx, to_idx);
     if (from_idx == to_idx) {
-        printf("Command not feasible\n");
+        printf("Command not feasible, failed to recognize motion.\n");
         return false;
     }
     if (ball_col == 0 && red_balls_stock[from_idx] > 0) {
@@ -455,11 +510,12 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
         return true;
     }
     else {
-        printf("Command not feasible\n");
+        printf("Command not feasible, stocking not available\n");
         return false;
     }
 }
 
+// return the index of the square contour that is closet to a pixel location
 int image_processing::closet_square(arr pix, std::vector<cv::Mat> sqs) {
     int closest_distance = -1;
     int res = -1;
