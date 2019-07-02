@@ -4,6 +4,14 @@ image_processing::image_processing()
 {
 }
 
+std::string image_processing::format_string(std::string s, int number) {
+    char buffer [50];
+    int n;
+    n=sprintf (buffer, "vis/%s%d.jpg", s.c_str(), number);
+    std::string res(buffer);
+    return res;
+}
+
 // denoise
 bool image_processing::check_neighbor(cv::Mat &img, int kernel_size, int x, int y) {
     bool res = true;
@@ -110,7 +118,8 @@ void image_processing::remove_outliers(cv::Mat &thresholded_img) {
 }
 
 // analyze RHC to figure how much a ball target is deviated from the gripper
-float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, bool show_im) {
+float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im,
+                                               int iter_nb) {
 
     // find circle
     cv::Mat im_gray;
@@ -192,15 +201,10 @@ float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im, b
         cv::imwrite("rhc_edge_abnormal.png", dst);
     }
 
-    cv::imwrite("rhc_analyzed.png", im);
-    cv::imwrite("rhc_edge.png", dst);
+    cv::imwrite(format_string("rhc_analyzed", iter_nb), im);
+    cv::imwrite(format_string("rhc_edge", iter_nb), dst);
     visual_im = im.clone();
 
-    if (show_im) {
-        cv::imshow("noname", im);
-        cv::imshow("edge", dst);
-        cv::waitKey(0);
-    }
     return distance_to_grippers;
 
 }
@@ -237,6 +241,7 @@ std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
         while (vertices.size().height > 4) {
             t += 0.001;
             cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
+            //printf("%f, %d\n", t, vertices.size().height);
         }
         big_contours[u] = vertices;
     }
@@ -412,7 +417,7 @@ bool validate(std::vector<cv::Mat> &gballs, std::vector<cv::Mat> &rballs,
         int cX = int(m.m10 / m.m00);
         int cY = int(m.m01 / m.m00);
         double d = sqrt(pow(cX-dest(0), 2) + pow(cY-dest(1), 2));
-        if (d < edge_length/5.0) {
+        if (d < edge_length/4.0) {
             res = false;
             break;
         }
@@ -422,7 +427,8 @@ bool validate(std::vector<cv::Mat> &gballs, std::vector<cv::Mat> &rballs,
 
 // analyze if a motion can be performed by analyzing available balls in the start square
 bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
-                                                   arr &start_sq, arr &dest_sq, arr &dest_location) {
+                                                   arr &start_sq, arr &dest_sq, arr &dest_location,
+                                                   int iter_nb) {
     cv::Mat orig_im = im.clone();
     std::vector<cv::Mat> squares = find_square_contours(im);
     std::vector<int> squares_center;
@@ -481,7 +487,7 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
 
     std::random_device rd;
     std::mt19937 eng(rd());
-    std::uniform_int_distribution<> mag(int(-longest_arc/2), int(longest_arc/2));
+    std::uniform_int_distribution<> mag(int(-longest_arc/2)+6, int(longest_arc/2)-6);
 
     // add random to destination ball drop
     while (1) {
@@ -491,13 +497,14 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
         dest_location(1) = squares_center[to_idx*2+1] + dy;
         if (validate(red_balls_on_squares, green_balls_on_squares, squares_center[to_idx*2], squares_center[to_idx*2+1],
                      distance_to_check_if_inside_square, longest_arc, dest_location)) {
-            printf("rand devitation %d %d\n", dx, dy);
+            printf("rand devitation %d %d %f\n", dx, dy, longest_arc);
             break;
         }
     }
+    cv::imwrite(format_string("counting_balls", iter_nb), im);
 
     printf("Ball moved from sq %d to sq %d\n", from_idx, to_idx);
-    if (from_idx == to_idx) {
+    if (from_idx == to_idx || ball_col == -1) {
         printf("Command not feasible, failed to recognize motion.\n");
         return false;
     }

@@ -17,29 +17,32 @@ static cv::Mat RHC;
 static cv::Mat FINDING_BALL_TARGET;
 static cv::Mat SCENE_ANALYSIS;
 static cv::Mat VIDEO_ANALYSIS;
+static int ITER = 0;
+
+std::string format_string(std::string s, int number) {
+    char buffer [50];
+    int n;
+    n=sprintf (buffer, "vis/%s%d.jpg", s.c_str(), number);
+    std::string res(buffer);
+    return res;
+}
 
 void* show_img_thread(void* im) {
-    int *x_ptr = (int *)im;
+    Var<byteA> _rgb;
+    Var<floatA> _depth;
+    RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
+    Var<byteA> _rgb2;
+    RosCamera cam2(_rgb2, _depth, "sontung", "/cameras/right_hand_camera/image", "");
 
-    while (1) {
-        if (*x_ptr == 0 && RHC.total() > 0) {
-            cv::imshow("rhc", RHC);
-            cv::waitKey(1);
-        }
-        else if (*x_ptr == 1 && FINDING_BALL_TARGET.total() > 0) {
-            cv::imshow("finding balls", FINDING_BALL_TARGET);
-            cv::waitKey(1);
-        }
-        else if (*x_ptr == 2 && SCENE_ANALYSIS.total() > 0) {
-            cv::imshow("analyzing scene", SCENE_ANALYSIS);
-            cv::waitKey(1);
-        }
-        else if (*x_ptr == 3 && VIDEO_ANALYSIS.total() > 0) {
-            cv::imshow("analyzing video", VIDEO_ANALYSIS);
-            cv::waitKey(1);
-        }
-    }
+    cv::Mat head = CV(_rgb.get()).clone();
+
+    byteA img = _rgb2.get();
+    cv::Mat hand = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
+    if (head.total() > 0) cv::imwrite(format_string("head_live", ITER), hand);
+    if (hand.total() > 0) cv::imwrite(format_string("hand_live", ITER), hand);
+
 }
+
 
 void pause_program() {
     cout << "Press to continue"<<endl;
@@ -64,16 +67,16 @@ arr compute_world_coord(int cx, int cy, cv::Mat &depth, rai::KinematicWorld &kin
     arr Fxypxy = {538.273, 544.277, 307.502, 249.954};
     Fxypxy /= 0.982094;
 
-    arr image_coord = {(float)cx, (float)cy, depth.at<float>(cy, cx)};
+    arr image_coord = {(float)cx*depth.at<float>(cy, cx),
+                       (float)cy*depth.at<float>(cy, cx),
+                       depth.at<float>(cy, cx), 1.0f};
 
-    printf("WC: transforming %d %d %f\n", cx, cy, depth.at<float>(cy, cx));
+    arr Pinv = arr(3,4,
+    {0.00180045, 5.51994e-06, -0.569533, -0.0330757,
+     -1.82321e-06, -0.00133149, 1.00136, 0.125005,
+     5.08217e-05, -0.00117336, -0.439092, 1.55487});
 
-    // camera coordinates
-    depthData2point(image_coord, Fxypxy); //transforms the point to camera xyz coordinates
-
-    // world coordinates
-    cameraFrame->X.applyOnPoint(image_coord); //transforms into world coordinates
-
+    image_coord = Pinv * image_coord;
     return image_coord;
 }
 
@@ -95,6 +98,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr
     // set the intrinsic camera parameters
     arr Fxypxy = {538.273, 544.277, 307.502, 249.954};
     Fxypxy /= 0.982094;
+    Fxypxy = {539.637, 540.941, 317.533, 260.024};
 
     cv::Mat img2;
     cv::Mat hsv_image2;
@@ -171,18 +175,23 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world, int ball_color, arr
                      all_depths.end());
     float median_depth = all_depths[all_depths.size()/2];
 
-    arr image_coord = {(float)i_avg/count, (float)j_avg/count, median_depth};
+    arr Pinv = arr(3,4,
+    {0.00180045, 5.51994e-06, -0.569533, -0.0330757,
+     -1.82321e-06, -0.00133149, 1.00136, 0.125005,
+     5.08217e-05, -0.00117336, -0.439092, 1.55487});
+
+    arr image_coord = {(float)i_avg/count*median_depth,
+                       (float)j_avg/count*median_depth, median_depth, 1.0f};
     cout<<"median depth "<<image_coord<<endl;
+    image_coord = Pinv*image_coord;
 
-    // camera coordinates
-    depthData2point(image_coord, Fxypxy); //transforms the point to camera xyz coordinates
+    arr wc = {image_coord(0), image_coord(1), image_coord(2)};
+    wc.append((double)i_avg/count);
+    wc.append((double)j_avg/count);
 
-    // world coordinates
-    cameraFrame->X.applyOnPoint(image_coord); //transforms into world coordinates
-    image_coord.append((double)i_avg/count);
-    image_coord.append((double)j_avg/count);
 
-    world_coordinates.push_back(image_coord);
+
+    world_coordinates.push_back(wc);
 
     cv::imwrite("rgb_detected.png", img);
     visual_im = img.clone();
@@ -298,8 +307,7 @@ std::vector<arr> perception(rai::KinematicWorld &kine_world) {
 }
 
 arr analyze_scene(rai::KinematicWorld &kine_world, arr dest_pix,
-                  arr ball_pixel_coord, cv::Mat &visual_im,
-                  bool show_img=false) {
+                  arr ball_pixel_coord, cv::Mat &visual_im) {
     Var<byteA> _rgb;
     Var<floatA> _depth;
     RosCamera cam(_rgb, _depth, "sontung", "/camera/rgb/image_raw", "/camera/depth/image_rect");
@@ -314,8 +322,6 @@ arr analyze_scene(rai::KinematicWorld &kine_world, arr dest_pix,
     }
     cv::Scalar color( 140, 150, 160 );
 
-
-
     cv::Point p = cv::Point(dest_pix(0), dest_pix(1));
     cv::Scalar color_center( 130, 150, 180 );
     cv::drawMarker(im, p, color_center, 16, 3, 8);
@@ -325,7 +331,6 @@ arr analyze_scene(rai::KinematicWorld &kine_world, arr dest_pix,
     p = cv::Point(ball_pixel_coord(0), ball_pixel_coord(1));
     cv::drawMarker(im, p, color, 16, 3, 8);
 
-
     visual_im = im.clone();
 
     return wc;
@@ -333,7 +338,8 @@ arr analyze_scene(rai::KinematicWorld &kine_world, arr dest_pix,
 }
 
 // analyze to return which ball moves, 0-red, 1-green
-int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &from, arr &to, cv::Mat &visual_im) {
+int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &from, arr &to,
+                  cv::Mat &visual_im, int iter_nb) {
     int res = -1;
 
     cv::Mat delta;
@@ -357,6 +363,7 @@ int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &from, arr &to,
     // detect moving pixels
     cv::absdiff(first_gray, curr_gray, delta);
     cv::threshold(delta, delta2, 25, 255, cv::THRESH_BINARY);
+    delta = delta2.clone();
     image_processing::remove_points_outside_contours(delta2, square_contours);
 
     std::vector<cv::Mat> contours;
@@ -410,16 +417,18 @@ int analyze_video(cv::Mat &first_frame, cv::Mat &curr_frame, arr &from, arr &to,
     if (res == -1) {
         printf("VIDEO ANALYSIS: documenting failures\n");
         cv::imwrite("firstframe_fail.png", first_frame);
+        cv::imwrite("moving_before_denoising_fail.png", delta);
         cv::imwrite("moving_fail.png", delta2);
         cv::imwrite("curr_frame_fail.png", curr_frame);
         cv::imwrite("green_fail.png", green_img);
         cv::imwrite("red_fail.png", red_img);
     }
-    cv::imwrite("curr_frame_fail.png", curr_frame);
+    cv::imwrite(format_string("curr_frameVA", iter_nb), curr_frame);
+
     return res;
 }
 
-float grab_right_hand_cam() {
+float grab_right_hand_cam(int iter_nb) {
     Var<byteA> _rgb;
     Var<floatA> _depth;
     RosCamera cam(_rgb, _depth, "sontung", "/cameras/right_hand_camera/image", "");
@@ -431,14 +440,14 @@ float grab_right_hand_cam() {
         if (rgb.total() > 0) {
             //return find_circle(rgb);
             cv::imwrite("right_hand_cam.png", rgb);
-            return image_processing::analyze_right_hand_cam(rgb, RHC, false);
+            return image_processing::analyze_right_hand_cam(rgb, RHC, iter_nb);
         }
     }
 }
 
 int main(int argc,char **argv){
     bool motion = true;
-    bool testing_trivial = false;
+    bool testing_trivial = true;
 
     // basic setup
     Var<byteA> _rgb;
@@ -453,20 +462,13 @@ int main(int argc,char **argv){
     if (!testing_trivial) rai::initCmdLine(argc,argv);
     cout <<"joint names: " <<B.getJointNames() <<endl;
 
-    // threads for visualizing
-    pthread_t rhc_thread, head_finding_ball, scene_analysis, video_analysis;
-    int t0, t1, t2, t3;
-    t0 = 0;
-    t1 = 1;
-    t2 = 2;
-    t3 = 3;
-//    int iret1, iret2, iret3, iret4;
-//    iret1 = pthread_create( &rhc_thread, nullptr, show_img_thread, &t0);
-//    iret2 = pthread_create( &head_finding_ball, nullptr, show_img_thread, &t1);
-//    iret3 = pthread_create( &scene_analysis, nullptr, show_img_thread, &t2);
-//    iret4 = pthread_create( &video_analysis, nullptr, show_img_thread, &t3);
+    int iret1;
+    int t0 = 0;
+    pthread_t stream_image_threads;
+    iret1 = pthread_create( &stream_image_threads, nullptr, show_img_thread, &t0);
 
     while (1) {
+        ITER += 1;
         if (!testing_trivial) {
             arr y, J;
             if (first_time_run) {
@@ -513,9 +515,10 @@ int main(int argc,char **argv){
                 next_frame = CV(_rgb.get()).clone();
                 if (next_frame.total() > 0) break;
             }
-            changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS);
+            changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS, ITER);
             printf("Ball target color = %d\n", changed_ball);
-            bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT, pixBin);
+            bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball,
+                                                                      pixF, pixT, pixBin, ITER);
             if (!good) continue;
             pause_program();
 
@@ -546,19 +549,23 @@ int main(int argc,char **argv){
 
             // analyzing right hand cam
             print_with_color("calibrating ...");
-            float distance_to_grippers = grab_right_hand_cam();
+            float distance_to_grippers = grab_right_hand_cam(ITER);
+            int lower_end = 65;
+            int upper_end = 75;
+            double step_size = 0.005;
             while (1) {
-                if (abs(distance_to_grippers) > 70) {
-                    if (distance_to_grippers > 0) targets[0](1) += 0.007;
-                    else if (distance_to_grippers < 0) targets[0](1) -= 0.007;
-                } else if (abs(distance_to_grippers) < 80) {
-                    if (distance_to_grippers > 0) targets[0](1) -= 0.007;
-                    else if (distance_to_grippers < 0) targets[0](1) += 0.007;
+                distance_to_grippers = grab_right_hand_cam(ITER);
+                if (abs(distance_to_grippers) < upper_end && abs(distance_to_grippers) >= lower_end) break;
+
+                if (abs(distance_to_grippers) > lower_end) {
+                    if (distance_to_grippers > 0) targets[0](1) += step_size;
+                    else if (distance_to_grippers < 0) targets[0](1) -= step_size;
+                } else if (abs(distance_to_grippers) < upper_end) {
+                    if (distance_to_grippers > 0) targets[0](1) -= step_size;
+                    else if (distance_to_grippers < 0) targets[0](1) += step_size;
                 }
                 q_current = kinematics::ik_compute(C, B, targets[0], q_home, motion);
                 pause_program_auto();
-                distance_to_grippers = grab_right_hand_cam();
-                if (abs(distance_to_grippers) < 80 && abs(distance_to_grippers) >= 70) break;
             }
             print_with_color("calibrating done.");
 
@@ -590,7 +597,7 @@ int main(int argc,char **argv){
             bin_target(2) += 0.15;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
-            bin_target(2) = 0.81;
+            bin_target(2) = 0.79;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
 
@@ -606,38 +613,36 @@ int main(int argc,char **argv){
 
         }
         else {
+            int changed_ball = 1;
+            arr pixF = {0, 0};
+            arr pixT = {0, 0};
+            arr pixBin = {0, 0};
+
+            printf("Ready\n");
+            cv::Mat orig_frame = CV(_rgb.get()).clone();
             while (1) {
-                int changed_ball = 1;
-                arr pixF = {0, 0};
-                arr pixT = {0, 0};
-                arr pixBin = {0, 0};
-
-                printf("Ready\n");
-                cv::Mat orig_frame = CV(_rgb.get()).clone();
-                while (1) {
-                    orig_frame = CV(_rgb.get()).clone();
-                    if (orig_frame.total() > 0) break;
-                }
-                printf("Change balls\n");
-                pause_program();
-                cv::Mat next_frame = CV(_rgb.get()).clone();
-                while (1) {
-                    next_frame = CV(_rgb.get()).clone();
-                    if (next_frame.total() > 0) break;
-                }
-                changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS);
-                printf("Ball target color = %d at %f %f\n", changed_ball, pixT(0), pixT(1));
-
-                bool good = image_processing::count_balls_for_each_square(next_frame, changed_ball, pixF, pixT, pixBin);
-
+                orig_frame = CV(_rgb.get()).clone();
+                if (orig_frame.total() > 0) break;
             }
+            printf("Change balls\n");
+            pause_program();
+            cv::Mat next_frame = CV(_rgb.get()).clone();
+            while (1) {
+                next_frame = CV(_rgb.get()).clone();
+                if (next_frame.total() > 0) break;
+            }
+            changed_ball = analyze_video(orig_frame, next_frame, pixF, pixT, VIDEO_ANALYSIS, ITER);
+            printf("Ball target color = %d at %f %f\n", changed_ball, pixT(0), pixT(1));
+
+            bool good = image_processing::count_balls_for_each_square(next_frame,
+                                                                      changed_ball, pixF,
+                                                                      pixT, pixBin, ITER);
+
+
         }
     }
 
-//    pthread_join(rhc_thread, nullptr);
-//    pthread_join(head_finding_ball, nullptr);
-//    pthread_join(scene_analysis, nullptr);
-//    pthread_join(video_analysis, nullptr);
+
 
     return 0;
 }

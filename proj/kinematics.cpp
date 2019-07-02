@@ -6,7 +6,7 @@ kinematics::kinematics()
 }
 
 arr kinematics::ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
-               arr &target_position, arr q_home, bool sending_motion, bool verbose) {
+                           arr &target_position, arr q_home, bool sending_motion, bool verbose) {
     rai::Frame *objectFrame = kine_world.addFrame("obj");
     objectFrame->setShape(rai::ST_ssBox, {.1, .1, .1, .02});
     objectFrame->setColor({.8, .8, .1});
@@ -107,7 +107,7 @@ arr kinematics::ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot
 }
 
 arr kinematics::ik_compute_with_grabbing(rai::KinematicWorld &kine_world, RobotOperation robot_op,
-                             arr &target_position, arr q_home, bool sending_motion) {
+                                         arr &target_position, arr q_home, bool sending_motion) {
     rai::Frame *objectFrame = kine_world.addFrame("obj");
     objectFrame->setShape(rai::ST_ssBox, {.1, .1, .1, .02});
     objectFrame->setColor({.8, .8, .1});
@@ -205,8 +205,8 @@ rai::KinematicWorld kinematics::setup_kinematic_world() {
     rai::Frame *cameraFrame = C.addFrame("camera", "head");
     cameraFrame->Q.setText("d(-90 0 0 1) t(-.08 .205 .115) d(26 1 0 0) d(-1 0 1 0) d(6 0 0 1)");
     cameraFrame->calc_X_from_parent();
-    cameraFrame->setPosition({-0.0472772, 0.226517, 1.79207});
-    cameraFrame->setQuaternion({0.969594, 0.24362, -0.00590741, 0.0223832});
+    cameraFrame->setPosition({-0.0499056, 0.231561, 1.7645});
+    cameraFrame->setQuaternion({0.971032, 0.237993, -0.00607315, 0.0204557});
 
     // add a frame for the object
     rai::Frame *objectFrame = C.addFrame("obj");
