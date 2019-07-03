@@ -12,10 +12,13 @@ class kinematics
 public:
     kinematics();
     static arr ik_compute(rai::KinematicWorld &kine_world, RobotOperation robot_op,
-                   arr &target_position, arr q_home, bool sending_motion=true,
-                   bool verbose=false);
+                          arr &target_position, arr q_home, bool sending_motion=true,
+                          bool verbose=false);
+    static arr ik_compute_cheap(rai::KinematicWorld &kine_world, RobotOperation robot_op,
+                                arr &target_position, arr q_home, bool sending_motion=true,
+                                bool verbose=false);
     static arr ik_compute_with_grabbing(rai::KinematicWorld &kine_world, RobotOperation robot_op,
-                                 arr &target_position, arr q_home, bool sending_motion=true);
+                                        arr &target_position, arr q_home, bool sending_motion=true);
     static rai::KinematicWorld setup_kinematic_world();
 };
 

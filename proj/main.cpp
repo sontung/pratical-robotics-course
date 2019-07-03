@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <pthread.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "kinematics.h"
 #include "image_processing.h"
@@ -18,6 +19,7 @@ static cv::Mat FINDING_BALL_TARGET;
 static cv::Mat SCENE_ANALYSIS;
 static cv::Mat VIDEO_ANALYSIS;
 static int ITER = 0;
+static int IMG_ID = 0;
 
 std::string format_string(std::string s, int number) {
     char buffer [50];
@@ -34,13 +36,15 @@ void* show_img_thread(void* im) {
     Var<byteA> _rgb2;
     RosCamera cam2(_rgb2, _depth, "sontung", "/cameras/right_hand_camera/image", "");
 
-    cv::Mat head = CV(_rgb.get()).clone();
-
-    byteA img = _rgb2.get();
-    cv::Mat hand = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
-    if (head.total() > 0) cv::imwrite(format_string("head_live", ITER), hand);
-    if (hand.total() > 0) cv::imwrite(format_string("hand_live", ITER), hand);
-
+    while (1) {
+        cv::Mat head = CV(_rgb.get()).clone();
+        byteA img = _rgb2.get();
+        cv::Mat hand = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
+        if (head.total() > 0) cv::imwrite(format_string("head_live", IMG_ID), head);
+        if (hand.total() > 0) cv::imwrite(format_string("hand_live", IMG_ID), hand);
+        IMG_ID += 1;
+        usleep(500000);
+    }
 }
 
 
@@ -447,7 +451,7 @@ float grab_right_hand_cam(int iter_nb) {
 
 int main(int argc,char **argv){
     bool motion = true;
-    bool testing_trivial = true;
+    bool testing_trivial = false;
 
     // basic setup
     Var<byteA> _rgb;
@@ -604,6 +608,11 @@ int main(int argc,char **argv){
             // release ball
             q_current(-2) = 0;
             if (motion) B.moveHard(q_current);
+            pause_program_auto();
+
+            // go up again
+            bin_target(2) += 0.15;
+            q_current = kinematics::ik_compute_cheap(C, B, bin_target, q_home, motion);
             pause_program_auto();
 
             // homing again
