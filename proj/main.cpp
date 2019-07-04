@@ -40,13 +40,16 @@ void* show_img_thread(void* im) {
         cv::Mat head = CV(_rgb.get()).clone();
         byteA img = _rgb2.get();
         cv::Mat hand = cv::Mat(img.d0, img.d1, CV_8UC4, img.p);
-        if (head.total() > 0) cv::imwrite(format_string("head_live", IMG_ID), head);
-        if (hand.total() > 0) cv::imwrite(format_string("hand_live", IMG_ID), hand);
+        if (head.total() > 0) cv::imwrite(format_string("video_head/head_live", IMG_ID), head);
+        if (hand.total() > 0) {
+            cv::resize(hand, hand, cv::Size(640, 480));
+            cv::imwrite(format_string("video_hand/hand_live", IMG_ID), hand);
+        }
+
         IMG_ID += 1;
-        usleep(500000);
+        usleep(50000);
     }
 }
-
 
 void pause_program() {
     cout << "Press to continue"<<endl;
