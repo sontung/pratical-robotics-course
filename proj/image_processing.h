@@ -19,6 +19,7 @@ public:
                                             arr &start_sq, arr &dest_sq, arr &dest_location,
                                             int iter_nb);
     static void remove_points_outside_contours(cv::Mat &thresholded_img, std::vector<cv::Mat> &contours);
+    static void visualize();
 
 private:
     static int closet_square(arr pix, std::vector<cv::Mat> sqs);
@@ -27,6 +28,7 @@ private:
                             std::vector<int> &square_cen,
                             std::vector<int> &stock,
                             double thresh_distance, unsigned long how_many_squares);
+    static cv::Mat count_balls_for_each_square(cv::Mat &im);
 };
 
 #endif // IMAGE_PROCESSING_H

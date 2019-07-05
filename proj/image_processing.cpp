@@ -474,9 +474,9 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
     for (uint v=0; v < squares.size(); v++) {
         int sX = squares_center[v*2];
         int sY = squares_center[v*2+1];
-        cv::putText(im, std::to_string(v), cv::Point(sX-50, sY-50), cv::FONT_HERSHEY_PLAIN, 1.5, color);
-        cv::putText(im, std::to_string(green_balls_stock[v]), cv::Point(sX-30, sY-30), cv::FONT_HERSHEY_PLAIN, 1.5, color);
-        cv::putText(im, std::to_string(red_balls_stock[v]), cv::Point(sX-40, sY-40), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "index "+std::to_string(v), cv::Point(sX-50, sY-50), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "green "+std::to_string(green_balls_stock[v]), cv::Point(sX-30, sY-30), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "red "+std::to_string(red_balls_stock[v]), cv::Point(sX-40, sY-40), cv::FONT_HERSHEY_PLAIN, 1.5, color);
     }
     cv::Point mark3 = cv::Point((int)dest_sq(0), (int)dest_sq(1));
     cv::drawMarker(im, mark3, cv::Scalar(0, 100, 100), 16, 3, 8);
@@ -537,4 +537,89 @@ int image_processing::closet_square(arr pix, std::vector<cv::Mat> sqs) {
         }
     }
     return res;
+}
+
+cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im) {
+    cv::Mat orig_im = im.clone();
+    std::vector<cv::Mat> squares = find_square_contours(im);
+    std::vector<int> squares_center;
+    for (uint v=0; v < squares.size(); v++) {
+        cv::Moments m2 = cv::moments(squares[v]);
+        int sX = int(m2.m10 / m2.m00);
+        int sY = int(m2.m01 / m2.m00);
+        squares_center.push_back(sX);
+        squares_center.push_back(sY);
+    }
+    std::vector<cv::Mat> red_balls = find_circle(orig_im, 0);
+    std::vector<cv::Mat> red_balls_on_squares;
+    std::vector<int> red_balls_stock = {0, 0, 0};
+    std::vector<cv::Mat> green_balls = find_circle(orig_im, 1);
+    std::vector<cv::Mat> green_balls_on_squares;
+    std::vector<int> green_balls_stock = {0, 0, 0};
+
+    // find arc length
+    double longest_arc = 0.0;
+    for (uint u = 0; u < squares.size(); u++) {
+        double arc = cv::arcLength(squares[u], true);
+        if (arc > longest_arc) longest_arc = arc;
+    }
+    longest_arc /= 4.0;
+    double distance_to_check_if_inside_square = sqrt(2.0*pow(longest_arc, 2))/2.0;
+
+    // remove ball contours not on any square for denoise
+    count_balls_helper(red_balls, red_balls_on_squares, squares_center,
+                       red_balls_stock,
+                       distance_to_check_if_inside_square, squares.size());
+    count_balls_helper(green_balls, green_balls_on_squares, squares_center,
+                       green_balls_stock,
+                       distance_to_check_if_inside_square, squares.size());
+
+    cv::Scalar color( 100, 100, 0 );
+    drawContours(im, red_balls_on_squares, -1, color);
+    drawContours(im, green_balls_on_squares, -1, color);
+    printf("reds: %d, green: %d\n", red_balls_on_squares.size(), green_balls_on_squares.size());
+    printf("reds %d %d %d, green %d %d %d\n", red_balls_stock[0], red_balls_stock[1],
+            red_balls_stock[2], green_balls_stock[0], green_balls_stock[1], green_balls_stock[2]);
+
+    // text
+    for (uint v=0; v < squares.size(); v++) {
+        int sX = squares_center[v*2];
+        int sY = squares_center[v*2+1];
+        cv::putText(im, "index "+std::to_string(v), cv::Point(sX-50, sY-50), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "green "+std::to_string(green_balls_stock[v]), cv::Point(sX-30, sY-30), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "red "+std::to_string(red_balls_stock[v]), cv::Point(sX-40, sY-40), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+    }
+
+    return im;
+}
+
+void image_processing::visualize() {
+    cv::VideoCapture cap("vis/video_head/head.avi");
+    if(!cap.isOpened()) {
+        std::cout << "Error opening video stream or file" << std::endl;
+        return;
+    }
+
+    while(1) {
+        cv::Mat frame;
+        cap >> frame;
+        if (frame.empty()) break;
+
+        arr r1 = {0, 0};
+        arr r2 = {0, 0};
+        cv::Mat frame2 = count_balls_for_each_square(frame);
+
+        // Display the resulting frame
+        imshow( "Frame", frame );
+        imshow( "Frame2", frame2 );
+
+
+        // Press  ESC on keyboard to exit
+        char c = (char)cv::waitKey(25);
+        if (c==27) break;
+    }
+
+    cap.release();
+    cv::destroyAllWindows();
+
 }

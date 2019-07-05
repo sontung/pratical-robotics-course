@@ -455,6 +455,13 @@ float grab_right_hand_cam(int iter_nb) {
 int main(int argc,char **argv){
     bool motion = true;
     bool testing_trivial = false;
+    bool visualize = true;
+
+    if (visualize) {
+        image_processing::visualize();
+        return 0;
+    }
+
 
     // basic setup
     Var<byteA> _rgb;
