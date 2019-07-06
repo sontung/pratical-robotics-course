@@ -98,7 +98,7 @@ double image_processing::find_circle(cv::Mat img) {
 }
 
 // denoise a binary image by removing white pixels that doesn't have many nearby white neighbors
-void image_processing::remove_outliers(cv::Mat &thresholded_img) {
+void image_processing::remove_outliers(cv::Mat &thresholded_img, int kernel) {
     int rows = thresholded_img.rows;
     int cols = thresholded_img.cols;
     int i_avg = 0;
@@ -106,14 +106,79 @@ void image_processing::remove_outliers(cv::Mat &thresholded_img) {
     int count = 0;
     for (int i=0;i<rows;i++) {
         for (int j=0;j<cols;j++) {
-            if (check_neighbor(thresholded_img, 10, i, j)) {
-                thresholded_img.at<uchar>(i, j) = 255;
-                i_avg += i;
-                j_avg += j;
-                count += 1;
+            cv::Scalar n = thresholded_img.at<uchar>(i, j);
+            double v = n.val[0];
+            if (v > 0) {
+                if (check_neighbor(thresholded_img, kernel, i, j)) {
+                    thresholded_img.at<uchar>(i, j) = 255;
+                    i_avg += i;
+                    j_avg += j;
+                    count += 1;
+                }
+                else thresholded_img.at<uchar>(i, j) = 0;
             }
-            else thresholded_img.at<uchar>(i, j) = 0;
         }
+    }
+}
+
+// denoise
+bool image_processing::check_neighbor2(cv::Mat &img, int kernel_size, int x, int y) {
+    bool res = true;
+    int step = 1;
+    while (step < kernel_size+1) {
+        cv::Scalar n1 = img.at<uchar>(x+step, y);
+        cv::Scalar n2 = img.at<uchar>(x-step, y);
+        cv::Scalar n3 = img.at<uchar>(x, y+step);
+        cv::Scalar n4 = img.at<uchar>(x, y-step);
+        double v1 = n1.val[0];
+        double v2 = n2.val[0];
+        double v3 = n3.val[0];
+        double v4 = n4.val[0];
+
+
+        if (v1 == 255.0 && v2 == 255.0 && v3 == 255.0 && v4 == 255.0) {
+            step++;
+        } else {
+            res = false;
+            break;
+        }
+    }
+    if (res) {
+        step--;
+        cv::Scalar n1 = img.at<uchar>(x+step, y);
+        cv::Scalar n2 = img.at<uchar>(x-step, y);
+        cv::Scalar n3 = img.at<uchar>(x, y+step);
+        cv::Scalar n4 = img.at<uchar>(x, y-step);
+        double v1 = n1.val[0];
+        double v2 = n2.val[0];
+        double v3 = n3.val[0];
+        double v4 = n4.val[0];
+        bool abool = v1 == 255.0 && v2 == 255.0 && v3 == 255.0 && v4 == 255.0;
+        //        printf("%d %d %f %f %f %f %d\n", x, y, v1, v2, v3, v4, abool);
+    }
+    return res;
+}
+
+// denoise a binary image by removing white pixels that doesn't have many nearby white neighbors
+void image_processing::remove_outliers_harsh(cv::Mat &thresholded_img) {
+    int rows = thresholded_img.rows;
+    int cols = thresholded_img.cols;
+    std::vector<int> good_pixels;
+    for (int i=0;i<rows;i++) {
+        for (int j=0;j<cols;j++) {
+            cv::Scalar n = thresholded_img.at<uchar>(i, j);
+            double v = n.val[0];
+            if (v > 0) {
+                if (!check_neighbor2(thresholded_img, 4, i, j)) {
+                    good_pixels.push_back(i);
+                    good_pixels.push_back(j);
+                }
+            }
+        }
+    }
+
+    for (uint i=0; i<good_pixels.size(); i+=2) {
+        thresholded_img.at<uchar>(good_pixels[i], good_pixels[i+1]) = 0;
     }
 }
 
@@ -235,18 +300,17 @@ std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
     for (uint u=0;u<big_contours.size();u++) {
         double peri = cv::arcLength(big_contours[u], true);
         cv::Mat vertices;
-        double t = 0.01;
+        double t = 0.001;
         cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
 
         while (vertices.size().height > 4) {
             t += 0.001;
             cv::approxPolyDP(big_contours[u], vertices, t*peri, true);
-            //printf("%f, %d\n", t, vertices.size().height);
         }
         big_contours[u] = vertices;
     }
 
-    // return 2 largest squares
+    // return 3 largest squares
     struct less_than_key
     {
         inline bool operator() (const cv::Mat& struct1, const cv::Mat& struct2)
@@ -338,18 +402,26 @@ std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) 
     cv::cvtColor(img, hsv_img, cv::COLOR_BGR2HSV);
 
     // thresholding
-    cv::inRange(hsv_img, cv::Scalar(35, 100, 100), cv::Scalar(55, 255, 255), green_img);
+    cv::inRange(hsv_img, cv::Scalar(40, 100, 100), cv::Scalar(55, 255, 255), green_img);
     cv::inRange(hsv_img, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), red_img);
+    cv::imshow("red after thresholding", red_img);
 
     // fill up holes inside thresholded region
-    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(8, 8));
     cv::dilate(red_img, red_img, element);
     cv::dilate(green_img, green_img, element);
+    cv::imshow("red after dilating", red_img);
+
+    // denoise thresholded images
+    remove_outliers(green_img, 10);
+    remove_outliers(red_img, 10);
+    cv::imshow("red after denoise", red_img);
+
 
     // return contours
     std::vector<cv::Mat> contours;
     if (ball_color == 0) findContours(red_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    else if (ball_color == 1 ) findContours(green_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    else if (ball_color == 1) findContours(green_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
 
     // remove smalle contours
     std::vector<cv::Mat> big_contours;
@@ -359,6 +431,11 @@ std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) 
     }
     cv::Scalar color( 100, 100, 0 );
     drawContours(img, big_contours, -1, color);
+
+    cv::imshow("green", green_img);
+    cv::imshow("red", red_img);
+    cv::imshow("img", img);
+
 
     return big_contours;
 
@@ -386,7 +463,7 @@ void image_processing::count_balls_helper(std::vector<cv::Mat> &balls,
     }
 }
 
-// validate if a position is too close to any bal
+// validate if a position is too close to any ball
 bool validate(std::vector<cv::Mat> &gballs, std::vector<cv::Mat> &rballs,
               int sq_center_x, int sq_center_y,
               double thresh_distance, double edge_length, arr &dest) {
@@ -433,12 +510,26 @@ bool image_processing::count_balls_for_each_square(cv::Mat &im, int ball_col,
     std::vector<cv::Mat> squares = find_square_contours(im);
     std::vector<int> squares_center;
     for (uint v=0; v < squares.size(); v++) {
-        cv::Moments m2 = cv::moments(squares[v]);
-        int sX = int(m2.m10 / m2.m00);
-        int sY = int(m2.m01 / m2.m00);
-        squares_center.push_back(sX);
-        squares_center.push_back(sY);
+        int x_max = 0;
+        int y_max = 0;
+        int x_min = 0;
+        int y_min = 0;
+        for (int u=0;u<squares[v].size().height;u++) {
+            cv::Point point = squares[v].at<cv::Point>(u);
+
+            if (x_max == 0 || point.x > x_max) x_max = point.x;
+            if (y_max == 0 || point.y > y_max) y_max = point.y;
+            if (x_min == 0 || point.x < x_min) x_min = point.x;
+            if (y_min == 0 || point.y < y_min) y_min = point.y;
+        }
+
+        cv::Point p((x_max+x_min)/2, (y_max+y_min)/2);
+        cv::drawMarker(im, p, cv::Scalar(100, 100, 100), 16, 3, 8);
+
+        squares_center.push_back((x_max+x_min)/2);
+        squares_center.push_back((y_max+y_min)/2);
     }
+
     std::vector<cv::Mat> red_balls = find_circle(orig_im, 0);
     std::vector<cv::Mat> red_balls_on_squares;
     std::vector<int> red_balls_stock = {0, 0, 0};
@@ -539,7 +630,8 @@ int image_processing::closet_square(arr pix, std::vector<cv::Mat> sqs) {
     return res;
 }
 
-cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im) {
+// vis code
+cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im, int &count, int &sq_vert) {
     cv::Mat orig_im = im.clone();
     std::vector<cv::Mat> squares = find_square_contours(im);
     std::vector<int> squares_center;
@@ -547,8 +639,29 @@ cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im) {
         cv::Moments m2 = cv::moments(squares[v]);
         int sX = int(m2.m10 / m2.m00);
         int sY = int(m2.m01 / m2.m00);
-        squares_center.push_back(sX);
-        squares_center.push_back(sY);
+        if (sq_vert == 0 || sq_vert > squares[v].size().height) {
+            sq_vert = squares[v].size().height;
+        }
+
+        int x_max = 0;
+        int y_max = 0;
+        int x_min = 0;
+        int y_min = 0;
+        for (int u=0;u<squares[v].size().height;u++) {
+            cv::Point point = squares[v].at<cv::Point>(u);
+
+            if (x_max == 0 || point.x > x_max) x_max = point.x;
+            if (y_max == 0 || point.y > y_max) y_max = point.y;
+            if (x_min == 0 || point.x < x_min) x_min = point.x;
+            if (y_min == 0 || point.y < y_min) y_min = point.y;
+        }
+
+        cv::Point p((x_max+x_min)/2, (y_max+y_min)/2);
+        cv::drawMarker(im, p, cv::Scalar(100, 100, 100), 16, 3, 8);
+        cv::drawMarker(im, cv::Point(sX, sY), cv::Scalar(200, 200, 200), 16, 3, 8);
+
+        squares_center.push_back((x_max+x_min)/2);
+        squares_center.push_back((y_max+y_min)/2);
     }
     std::vector<cv::Mat> red_balls = find_circle(orig_im, 0);
     std::vector<cv::Mat> red_balls_on_squares;
@@ -556,6 +669,8 @@ cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im) {
     std::vector<cv::Mat> green_balls = find_circle(orig_im, 1);
     std::vector<cv::Mat> green_balls_on_squares;
     std::vector<int> green_balls_stock = {0, 0, 0};
+    printf("1. total reds: %d, total green: %d\n", red_balls.size(), green_balls.size());
+
 
     // find arc length
     double longest_arc = 0.0;
@@ -577,17 +692,22 @@ cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im) {
     cv::Scalar color( 100, 100, 0 );
     drawContours(im, red_balls_on_squares, -1, color);
     drawContours(im, green_balls_on_squares, -1, color);
-    printf("reds: %d, green: %d\n", red_balls_on_squares.size(), green_balls_on_squares.size());
+    printf("Square edge length = %f\n", longest_arc);
+    printf("total reds: %d, total green: %d\n", red_balls.size(), green_balls.size());
+    printf("reds on sq: %d, green on sq: %d\n", red_balls_on_squares.size(), green_balls_on_squares.size());
+    count = red_balls_on_squares.size()+green_balls_on_squares.size();
     printf("reds %d %d %d, green %d %d %d\n", red_balls_stock[0], red_balls_stock[1],
             red_balls_stock[2], green_balls_stock[0], green_balls_stock[1], green_balls_stock[2]);
 
     // text
+    int base = 100;
+    int between = 10;
     for (uint v=0; v < squares.size(); v++) {
         int sX = squares_center[v*2];
         int sY = squares_center[v*2+1];
-        cv::putText(im, "index "+std::to_string(v), cv::Point(sX-50, sY-50), cv::FONT_HERSHEY_PLAIN, 1.5, color);
-        cv::putText(im, "green "+std::to_string(green_balls_stock[v]), cv::Point(sX-30, sY-30), cv::FONT_HERSHEY_PLAIN, 1.5, color);
-        cv::putText(im, "red "+std::to_string(red_balls_stock[v]), cv::Point(sX-40, sY-40), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "index "+std::to_string(v), cv::Point(sX-base, sY-base), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "green "+std::to_string(green_balls_stock[v]), cv::Point(sX-base+between, sY-base+between), cv::FONT_HERSHEY_PLAIN, 1.5, color);
+        cv::putText(im, "red "+std::to_string(red_balls_stock[v]), cv::Point(sX-base+between*2, sY-base+between*2), cv::FONT_HERSHEY_PLAIN, 1.5, color);
     }
 
     return im;
@@ -600,23 +720,40 @@ void image_processing::visualize() {
         return;
     }
 
+    int total_balls = 0;
+    int ind = 0;
+    int sq = 0;
+
     while(1) {
+        printf("index %d\n", ind);
         cv::Mat frame;
         cap >> frame;
         if (frame.empty()) break;
+        ind++;
+        if (ind < 276) continue;
+
 
         arr r1 = {0, 0};
         arr r2 = {0, 0};
-        cv::Mat frame2 = count_balls_for_each_square(frame);
+        cv::Mat frame2 = count_balls_for_each_square(frame, total_balls, sq);
 
         // Display the resulting frame
         imshow( "Frame", frame );
-        imshow( "Frame2", frame2 );
-
 
         // Press  ESC on keyboard to exit
-        char c = (char)cv::waitKey(25);
-        if (c==27) break;
+        cv::waitKey(1);
+
+        if (total_balls != 4) {
+            printf("wrong\n");
+            std::cin.get();
+        }
+
+        //        if (sq != 4) {
+        //            printf("wrong\n");
+        //            std::cin.get();
+        //        }
+
+
     }
 
     cap.release();
