@@ -36,88 +36,25 @@ bool image_processing::check_neighbor(cv::Mat &img, int kernel_size, int x, int 
     return res;
 }
 
-// find circle by thresholding green pixels
-double image_processing::find_circle(cv::Mat img) {
-    cv::Mat img2;
-    cv::Mat hsv_image2;
-    cv::Mat thresholded_img;
-
-    // blur
-    for ( int u = 1; u < 31; u = u + 2 ){ cv::GaussianBlur( img, img2, cv::Size( u, u ), 0, 0 ); }
-    cv::cvtColor(img2, hsv_image2, cv::COLOR_BGR2HSV);
-
-    // threshold
-    cv::inRange(hsv_image2, cv::Scalar(40, 40, 40), cv::Scalar(70, 255, 255), thresholded_img);
-
-    // remove outliers
-    int rows = thresholded_img.rows;
-    int cols = thresholded_img.cols;
-    int i_avg;
-    int j_avg;
-    int count;
-    for (int i=0;i<rows;i++) {
-        for (int j=0;j<cols;j++) {
-            if (check_neighbor(thresholded_img, 10, i, j)) {
-                thresholded_img.at<uchar>(i, j) = 255;
-                i_avg += i;
-                j_avg += j;
-                count += 1;
-            }
-            else thresholded_img.at<uchar>(i, j) = 0;
-        }
-    }
-
-    std::vector<cv::Mat> contours;
-    findContours(thresholded_img, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    cv::Scalar color( 140, 150, 160 );
-    drawContours(img, contours, -1, color);
-
-    printf(" detected %d objects\n", contours.size());
-    for (uint u=0;u<contours.size();u++) {
-        double area = cv::contourArea(contours[u]);
-        printf("  object %d: detected %d points in the contour\n", u+1, contours[u].size().height);
-        std::cout<< "  area: " <<area<<std::endl;
-
-        i_avg = 0;
-        j_avg = 0;
-        count = 0;
-        for (int v=0;v<contours[u].size().height;v++) {
-            cv::Point point = contours[u].at<cv::Point>(v);
-            i_avg += point.x;
-            j_avg += point.y;
-            count ++;
-        }
-        cv::Point mark = cv::Point(i_avg/count, j_avg/count);
-        cv::drawMarker(img, mark, cv::Scalar(0, 0, 0), 16, 3, 8);
-
-    }
-    cv::imwrite("right_hand_cam.png", img);
-    if (contours.size() > 1) cv::imwrite("right_hand_cam_mult.png", img);
-    double area = cv::contourArea(contours[0]);
-    return area;
-}
-
 // denoise a binary image by removing white pixels that doesn't have many nearby white neighbors
 void image_processing::remove_outliers(cv::Mat &thresholded_img, int kernel) {
     int rows = thresholded_img.rows;
     int cols = thresholded_img.cols;
-    int i_avg = 0;
-    int j_avg = 0;
-    int count = 0;
+    std::vector<int> bad_pixels;
     for (int i=0;i<rows;i++) {
         for (int j=0;j<cols;j++) {
             cv::Scalar n = thresholded_img.at<uchar>(i, j);
             double v = n.val[0];
             if (v > 0) {
-                if (check_neighbor(thresholded_img, kernel, i, j)) {
-                    thresholded_img.at<uchar>(i, j) = 255;
-                    i_avg += i;
-                    j_avg += j;
-                    count += 1;
+                if (!check_neighbor(thresholded_img, kernel, i, j)) {
+                    bad_pixels.push_back(i);
+                    bad_pixels.push_back(j);
                 }
-                else thresholded_img.at<uchar>(i, j) = 0;
             }
         }
+    }
+    for (uint i=0; i<bad_pixels.size(); i+=2) {
+        thresholded_img.at<uchar>(bad_pixels[i], bad_pixels[i+1]) = 0;
     }
 }
 
@@ -142,19 +79,6 @@ bool image_processing::check_neighbor2(cv::Mat &img, int kernel_size, int x, int
             res = false;
             break;
         }
-    }
-    if (res) {
-        step--;
-        cv::Scalar n1 = img.at<uchar>(x+step, y);
-        cv::Scalar n2 = img.at<uchar>(x-step, y);
-        cv::Scalar n3 = img.at<uchar>(x, y+step);
-        cv::Scalar n4 = img.at<uchar>(x, y-step);
-        double v1 = n1.val[0];
-        double v2 = n2.val[0];
-        double v3 = n3.val[0];
-        double v4 = n4.val[0];
-        bool abool = v1 == 255.0 && v2 == 255.0 && v3 == 255.0 && v4 == 255.0;
-        //        printf("%d %d %f %f %f %f %d\n", x, y, v1, v2, v3, v4, abool);
     }
     return res;
 }
@@ -236,6 +160,10 @@ float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im,
         cv::approxPolyDP(only_big_contours[u], vertices, 0.04*peri, true);
         if (vertices.size().height > 5) interested_contours.push_back(only_big_contours[u]);
     }
+    if (interested_contours.size() == 0) {
+        visual_im = im.clone();
+        return nanf("");
+    }
 
     std::sort(interested_contours.begin(), interested_contours.end(), less_than_key());
 
@@ -266,8 +194,6 @@ float image_processing::analyze_right_hand_cam(cv::Mat im, cv::Mat &visual_im,
         cv::imwrite("rhc_edge_abnormal.png", dst);
     }
 
-    cv::imwrite(format_string("rhc_analyzed", iter_nb), im);
-    cv::imwrite(format_string("rhc_edge", iter_nb), dst);
     visual_im = im.clone();
 
     return distance_to_grippers;
@@ -324,6 +250,7 @@ std::vector<cv::Mat> image_processing::find_square_contours(cv::Mat &im) {
 
     // sort by x coord
     std::vector<cv::Mat> square_contours;
+    if (big_contours.size() < 3) return big_contours;
     square_contours.push_back(big_contours[0]);
     square_contours.push_back(big_contours[1]);
     square_contours.push_back(big_contours[2]);
@@ -404,18 +331,15 @@ std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) 
     // thresholding
     cv::inRange(hsv_img, cv::Scalar(40, 100, 100), cv::Scalar(55, 255, 255), green_img);
     cv::inRange(hsv_img, cv::Scalar(0, 100, 100), cv::Scalar(10, 255, 255), red_img);
-    cv::imshow("red after thresholding", red_img);
 
     // fill up holes inside thresholded region
     cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(8, 8));
     cv::dilate(red_img, red_img, element);
     cv::dilate(green_img, green_img, element);
-    cv::imshow("red after dilating", red_img);
 
     // denoise thresholded images
     remove_outliers(green_img, 10);
     remove_outliers(red_img, 10);
-    cv::imshow("red after denoise", red_img);
 
 
     // return contours
@@ -431,11 +355,6 @@ std::vector<cv::Mat> image_processing::find_circle(cv::Mat img, int ball_color) 
     }
     cv::Scalar color( 100, 100, 0 );
     drawContours(img, big_contours, -1, color);
-
-    cv::imshow("green", green_img);
-    cv::imshow("red", red_img);
-    cv::imshow("img", img);
-
 
     return big_contours;
 
@@ -634,11 +553,9 @@ int image_processing::closet_square(arr pix, std::vector<cv::Mat> sqs) {
 cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im, int &count, int &sq_vert) {
     cv::Mat orig_im = im.clone();
     std::vector<cv::Mat> squares = find_square_contours(im);
+
     std::vector<int> squares_center;
     for (uint v=0; v < squares.size(); v++) {
-        cv::Moments m2 = cv::moments(squares[v]);
-        int sX = int(m2.m10 / m2.m00);
-        int sY = int(m2.m01 / m2.m00);
         if (sq_vert == 0 || sq_vert > squares[v].size().height) {
             sq_vert = squares[v].size().height;
         }
@@ -658,7 +575,6 @@ cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im, int &count, i
 
         cv::Point p((x_max+x_min)/2, (y_max+y_min)/2);
         cv::drawMarker(im, p, cv::Scalar(100, 100, 100), 16, 3, 8);
-        cv::drawMarker(im, cv::Point(sX, sY), cv::Scalar(200, 200, 200), 16, 3, 8);
 
         squares_center.push_back((x_max+x_min)/2);
         squares_center.push_back((y_max+y_min)/2);
@@ -714,7 +630,7 @@ cv::Mat image_processing::count_balls_for_each_square(cv::Mat &im, int &count, i
 }
 
 void image_processing::visualize() {
-    cv::VideoCapture cap("vis/video_head/head.avi");
+    cv::VideoCapture cap("vis/video_head/head3.avi");
     if(!cap.isOpened()) {
         std::cout << "Error opening video stream or file" << std::endl;
         return;
@@ -729,30 +645,27 @@ void image_processing::visualize() {
         cv::Mat frame;
         cap >> frame;
         if (frame.empty()) break;
-        ind++;
-        if (ind < 276) continue;
 
+        if (1) {
+            arr r1 = {0, 0};
+            arr r2 = {0, 0};
+            cv::Mat frame2 = count_balls_for_each_square(frame, total_balls, sq);
+            imshow( "Frame", frame );
+            cv::waitKey(1);
+            cv::imwrite(format_string("video_head_processed/head_live", ind), frame);
+        } else {
+            cv::Mat frame2;
+            float d = analyze_right_hand_cam(frame, frame2, 0);
+            printf("Res = %f\n", d);
+            cv::Scalar color( 0, 204, 0 );
+            cv::putText(frame2, std::to_string(d), cv::Point(20, 40), cv::FONT_HERSHEY_DUPLEX, 1.5, color);
+            imshow( "Frame", frame2 );
+            cv::waitKey(1);
+            cv::imwrite(format_string("video_hand_processed/hand_live", ind), frame2);
 
-        arr r1 = {0, 0};
-        arr r2 = {0, 0};
-        cv::Mat frame2 = count_balls_for_each_square(frame, total_balls, sq);
-
-        // Display the resulting frame
-        imshow( "Frame", frame );
-
-        // Press  ESC on keyboard to exit
-        cv::waitKey(1);
-
-        if (total_balls != 4) {
-            printf("wrong\n");
-            std::cin.get();
         }
 
-        //        if (sq != 4) {
-        //            printf("wrong\n");
-        //            std::cin.get();
-        //        }
-
+        ind++;
 
     }
 

@@ -564,8 +564,8 @@ int main(int argc,char **argv){
             // analyzing right hand cam
             print_with_color("calibrating ...");
             float distance_to_grippers = grab_right_hand_cam(ITER);
-            int lower_end = 65;
-            int upper_end = 75;
+            int lower_end = 60;
+            int upper_end = 70;
             double step_size = 0.005;
             while (1) {
                 distance_to_grippers = grab_right_hand_cam(ITER);
@@ -583,7 +583,7 @@ int main(int argc,char **argv){
             }
             print_with_color("calibrating done.");
 
-            targets[0](2) = 0.81;
+            targets[0](2) = 0.77;
             q_current = kinematics::ik_compute(C, B, targets[0], q_home, motion);
             cout<<"Ready to grab at "<< q_current<<endl;
             pause_program_auto(9);
@@ -611,7 +611,7 @@ int main(int argc,char **argv){
             bin_target(2) += 0.15;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
-            bin_target(2) = 0.79;
+            bin_target(2) = 0.755;
             q_current = kinematics::ik_compute_with_grabbing(C, B, bin_target, q_home, motion);
             pause_program_auto();
 
